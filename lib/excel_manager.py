@@ -13,25 +13,40 @@ DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
 
 
 def get_available_levels() -> list[str]:
+    """Return all levels found in data/ directory (including empty templates)."""
     pattern = os.path.join(DATA_DIR, "*_vocab.xlsx")
     files = glob.glob(pattern)
     levels = []
     for f in files:
         basename = os.path.basename(f)
+        # Skip temp/lock files created by Excel/LibreOffice
+        if basename.startswith(".~") or basename.startswith("~$"):
+            continue
         level = basename.replace("_vocab.xlsx", "")
         try:
             wb = load_workbook(f, read_only=True)
-            has_data = False
-            for ws in wb.worksheets:
-                if ws.max_row and ws.max_row > 1:
-                    has_data = True
-                    break
             wb.close()
-            if has_data:
-                levels.append(level)
+            levels.append(level)
         except Exception:
             continue
     return sorted(levels)
+
+
+def is_level_empty(level: str) -> bool:
+    """Check if a level has zero vocabulary data (only headers or no rows)."""
+    filepath = os.path.join(DATA_DIR, f"{level}_vocab.xlsx")
+    if not os.path.exists(filepath):
+        return True
+    try:
+        wb = load_workbook(filepath, read_only=True)
+        for ws in wb.worksheets:
+            if ws.max_row and ws.max_row > 1:
+                wb.close()
+                return False
+        wb.close()
+    except Exception:
+        pass
+    return True
 
 
 def get_day_info(level: str) -> dict:

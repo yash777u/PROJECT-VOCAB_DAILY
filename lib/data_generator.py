@@ -258,6 +258,88 @@ def create_empty_template(filepath: str):
     print(f"  📄 Created template: {filepath}")
 
 
+# ═══════════════════════════════════════════════════════════════
+# Entertainment & Subtitles Level — learn German via movies/TV/music
+# ═══════════════════════════════════════════════════════════════
+# fmt: off
+ENTERTAINMENT_DATA = {
+    1: [
+        # Day 1: Movie & TV Show Phrases (common subtitle lines)
+        ("Hilfe!", "HIL-feh", "Help!", "Hilfe! Ruft die Polizei!", "phrase", "🆘", "emergency rescue alarm"),
+        ("Was ist los?", "vas ist lohs", "What's going on?", "Was ist los mit dir?", "phrase", "❓", "confused surprise reaction"),
+        ("Keine Ahnung", "KY-neh AH-nung", "No idea", "Ich habe keine Ahnung.", "phrase", "🤷", "shrug confused person"),
+        ("Genau", "geh-NOW", "Exactly", "Genau, das stimmt!", "phrase", "🎯", "bullseye target right"),
+        ("Wahnsinn!", "VAHN-zinn", "Insane! / Crazy!", "Das ist Wahnsinn!", "phrase", "🤯", "mind blown explosion"),
+        ("Lass mich in Ruhe", "lass mikh in ROO-eh", "Leave me alone", "Bitte, lass mich in Ruhe!", "phrase", "🚫", "stop sign privacy"),
+        ("Es tut mir leid", "es toot meer lyte", "I'm sorry", "Es tut mir leid, das war mein Fehler.", "phrase", "😔", "sorry apology regret"),
+        ("Ich verstehe nicht", "ikh fair-SHTAY-eh nikht", "I don't understand", "Tut mir leid, ich verstehe nicht.", "phrase", "😕", "confused question face"),
+        ("Mach schnell!", "mahkh shnell", "Hurry up!", "Mach schnell, wir sind spät!", "phrase", "⏩", "running fast speed"),
+        ("Das ist verrückt", "das ist fair-RUEKT", "That's crazy", "Das ist total verrückt!", "phrase", "😜", "wild crazy party"),
+        ("Sei vorsichtig!", "zye FOR-zikh-tikh", "Be careful!", "Sei vorsichtig auf der Straße!", "phrase", "⚠️", "warning caution sign"),
+        ("Ich bin müde", "ikh bin MUE-deh", "I'm tired", "Ich bin so müde heute.", "phrase", "😴", "sleeping tired yawning"),
+        ("Das ist langweilig", "das ist LANG-vy-likh", "That's boring", "Der Film ist langweilig.", "phrase", "😑", "bored yawning face"),
+        ("Unglaublich!", "UN-gloub-likh", "Unbelievable!", "Das ist unglaublich schön!", "phrase", "😲", "amazed astonished awe"),
+        ("Ich habe Hunger", "ikh HAH-beh HUNG-er", "I'm hungry", "Ich habe großen Hunger.", "phrase", "🍕", "hungry food craving"),
+        ("Aufpassen!", "OWF-pah-sen", "Watch out!", "Pass auf, ein Auto kommt!", "phrase", "👀", "eyes watching alert"),
+        ("Alles klar", "AH-les klahr", "All clear / Got it", "Alles klar, ich komme!", "phrase", "👌", "ok approval check"),
+        ("Stimmt das?", "shtimt das", "Is that right?", "Du bist 30? Stimmt das?", "phrase", "🧐", "detective investigating curious"),
+        ("Ich bin dran", "ikh bin drahn", "It's my turn", "Warte, ich bin dran!", "phrase", "☝️", "pointing up me next"),
+        ("Ach so!", "akh zoh", "Oh I see!", "Ach so! Jetzt verstehe ich.", "phrase", "💡", "lightbulb understanding idea"),
+    ],
+    2: [
+        # Day 2: Emotions & Reactions (heard in dramas/reality TV)
+        ("Ich freue mich", "ikh FROY-eh mikh", "I'm happy / I'm looking forward", "Ich freue mich auf das Konzert!", "phrase", "😊", "happy excited joyful"),
+        ("Ich habe Angst", "ikh HAH-beh angst", "I'm afraid / scared", "Ich habe Angst vor Spinnen.", "phrase", "😨", "scared afraid horror"),
+        ("Das nervt", "das nairft", "That's annoying", "Das nervt mich total!", "phrase", "😤", "angry irritated annoyed"),
+        ("Ich vermisse dich", "ikh fair-MIS-seh dikh", "I miss you", "Ich vermisse dich so sehr!", "phrase", "💔", "miss you heartache sad"),
+        ("Du spinnst!", "doo shpinst", "You're crazy!", "Du spinnst doch!", "phrase", "🌀", "dizzy spiral confusion"),
+        ("Ich schwöre", "ikh SHVOE-reh", "I swear", "Ich schwöre, das ist wahr!", "phrase", "🤞", "promise swear honest"),
+        ("Auf keinen Fall!", "owf KY-nen fahl", "No way!", "Auf keinen Fall mache ich das!", "phrase", "🙅", "refuse denial no way"),
+        ("Mir ist egal", "meer ist eh-GAHL", "I don't care", "Mir ist das völlig egal.", "phrase", "💅", "whatever indifferent casual"),
+        ("Krass!", "krahs", "Awesome! / Intense!", "Das war echt krass!", "phrase", "🔥", "fire awesome intense cool"),
+        ("Geil!", "gyle", "Cool! / Awesome!", "Das neue Lied ist geil!", "phrase", "🤙", "cool awesome surfer"),
+        ("Ich bin sauer", "ikh bin ZOW-er", "I'm angry/upset", "Ich bin sauer auf dich!", "phrase", "😡", "angry red furious face"),
+        ("Das geht nicht", "das gayt nikht", "That won't work", "Nein, das geht so nicht!", "phrase", "❌", "cross error wrong"),
+        ("Zum Glück!", "tsum gluek", "Luckily!", "Zum Glück hast du angerufen!", "phrase", "🍀", "four leaf clover luck"),
+        ("Ich bin stolz", "ikh bin shtolts", "I'm proud", "Ich bin stolz auf dich!", "phrase", "🏆", "trophy proud achievement"),
+        ("Halt die Klappe!", "hahlt dee KLAH-peh", "Shut up!", "Halt die Klappe, bitte!", "phrase", "🤫", "shush quiet silence"),
+        ("Wie peinlich!", "vee PINE-likh", "How embarrassing!", "Wie peinlich war das denn!", "phrase", "🫣", "embarrassed hiding face"),
+        ("Ich glaube dir", "ikh GLOW-beh deer", "I believe you", "Okay, ich glaube dir.", "phrase", "🤝", "trust handshake agreement"),
+        ("Das macht Spaß!", "das makht shpahs", "That's fun!", "Tanzen macht total Spaß!", "phrase", "🎉", "party confetti celebration"),
+    ],
+    3: [
+        # Day 3: Streaming, Social Media & Pop Culture Slang
+        ("der Film", "film", "the movie/film", "Der Film war spannend.", "masculine", "🎬", "movie cinema popcorn"),
+        ("die Serie", "ZEH-ree-eh", "the series/show", "Die Serie hat zehn Folgen.", "feminine", "📺", "television streaming binge"),
+        ("die Folge", "FOL-geh", "the episode", "Die nächste Folge kommt morgen.", "feminine", "▶️", "play button next episode"),
+        ("der Untertitel", "UN-ter-tee-tel", "the subtitle", "Ich lese die Untertitel.", "masculine", "💬", "caption subtitle text"),
+        ("die Sendung", "ZEN-dung", "the show/broadcast", "Die Sendung beginnt um 20 Uhr.", "feminine", "📡", "broadcast satellite antenna"),
+        ("der Schauspieler", "SHOW-shpee-ler", "the actor", "Der Schauspieler spielt gut.", "masculine", "🎭", "actor theatre mask"),
+        ("die Schauspielerin", "SHOW-shpee-leh-rin", "the actress", "Die Schauspielerin ist berühmt.", "feminine", "🌟", "famous star celebrity"),
+        ("das Lied", "leet", "the song", "Das Lied ist wunderschön.", "neuter", "🎵", "music song melody"),
+        ("der Sänger", "ZENG-er", "the singer (male)", "Der Sänger singt laut.", "masculine", "🎤", "male singer microphone"),
+        ("die Sängerin", "ZENG-eh-rin", "the singer (female)", "Die Sängerin hat eine tolle Stimme.", "feminine", "🎙️", "female singer performer"),
+        ("die Musik", "moo-ZEEK", "the music", "Ich höre gern Musik.", "feminine", "🎶", "music notes headphones"),
+        ("das Konzert", "kon-TSAIRT", "the concert", "Das Konzert war fantastisch!", "neuter", "🎸", "concert stage guitar"),
+        ("der Kanal", "kah-NAHL", "the channel", "Welcher Kanal zeigt das Spiel?", "masculine", "📲", "youtube channel subscribe"),
+        ("streamen", "STREE-men", "to stream", "Wir streamen den Film heute.", "verb", "📡", "streaming laptop screen"),
+        ("liken", "LY-ken", "to like (social media)", "Ich like dein Foto!", "verb", "👍", "thumbs up social media"),
+        ("teilen", "TY-len", "to share", "Kannst du das Video teilen?", "verb", "🔗", "share link forward"),
+        ("abonnieren", "ah-bo-NEE-ren", "to subscribe", "Bitte abonniert meinen Kanal!", "verb", "🔔", "subscribe bell notification"),
+        ("die Werbung", "VAIR-bung", "the advertisement", "Die Werbung ist zu lang.", "feminine", "📢", "advertisement commercial billboard"),
+        ("spannend", "SHPAH-nend", "exciting/thrilling", "Der Krimi ist sehr spannend!", "phrase", "😬", "suspense thriller popcorn"),
+        ("lustig", "LUS-tikh", "funny", "Die Komödie ist sehr lustig!", "phrase", "😂", "laughing funny comedy"),
+    ],
+}
+# fmt: on
+
+ENTERTAINMENT_DAY_TITLES = {
+    1: "Movie & TV Phrases",
+    2: "Emotions & Reactions",
+    3: "Streaming & Pop Culture",
+}
+
+
 def generate_all():
     """Main entry point — creates all Excel files."""
     data_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
@@ -271,16 +353,23 @@ def generate_all():
     print("\n📚 Generating A1 vocabulary (111 words, 5 days)...")
     create_level_workbook(a1_path, WORD_DATA)
 
+    # ENT (Entertainment & Subtitles) — fully populated
+    ent_path = os.path.join(data_dir, "ENT_vocab.xlsx")
+    ent_total = sum(len(v) for v in ENTERTAINMENT_DATA.values())
+    print(f"\n🎬 Generating Entertainment & Subtitles vocabulary ({ent_total} words, {len(ENTERTAINMENT_DATA)} days)...")
+    create_level_workbook(ent_path, ENTERTAINMENT_DATA)
+
     # A2, B1, B2 — empty templates
     for level in ["A2", "B1", "B2"]:
         tpl_path = os.path.join(data_dir, f"{level}_vocab.xlsx")
         print(f"\n📝 Generating {level} template...")
         create_empty_template(tpl_path)
 
-    total = sum(len(v) for v in WORD_DATA.values())
-    print(f"\n🎉 Done! {total} words generated across {len(WORD_DATA)} days.")
+    total = sum(len(v) for v in WORD_DATA.values()) + ent_total
+    print(f"\n🎉 Done! {total} words generated across A1 + ENT levels.")
     print(f"📂 Files saved to: {data_dir}\n")
 
 
 if __name__ == "__main__":
     generate_all()
+

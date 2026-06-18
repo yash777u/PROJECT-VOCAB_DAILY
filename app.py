@@ -4,7 +4,7 @@ import os
 import time
 import streamlit as st
 import pandas as pd
-from lib.excel_manager import get_available_levels, get_day_info, load_vocab, load_all_vocab
+from lib.excel_manager import get_available_levels, get_day_info, load_vocab, load_all_vocab, is_level_empty
 from lib.image_fetcher import fetch_image_for_row, fetch_image_url, validate_image_url
 from lib.tts_service import pronounce_word, slow_word, spell_word, get_audio_paths
 
@@ -378,12 +378,20 @@ def _get_and_show_image(row, level, day, row_idx):
     card_images = st.session_state.card_images
     if row_idx in card_images:
         local_path = card_images[row_idx]
-        if local_path and os.path.exists(local_path):
+        if local_path:
             try:
-                st.image(local_path, use_container_width=True)
-                if st.session_state.debug_images:
-                    st.caption(f"📁 From session cache: `{local_path}`")
-                return
+                # local_path can be a filesystem path or a URL
+                if str(local_path).lower().startswith(('http://','https://')):
+                    st.image(local_path, use_container_width=True)
+                    if st.session_state.debug_images:
+                        st.caption(f"🌐 From session cache (url): `{local_path}`")
+                    return
+                else:
+                    if os.path.exists(local_path):
+                        st.image(local_path, use_container_width=True)
+                        if st.session_state.debug_images:
+                            st.caption(f"📁 From session cache: `{local_path}`")
+                        return
             except Exception:
                 pass
 
@@ -408,6 +416,7 @@ def _get_and_show_image(row, level, day, row_idx):
                 st.error(f"Error: {debug_info['error']}")
 
     if local_path:
+        # local_path might be a URL now; cache and show directly
         card_images[row_idx] = local_path
         try:
             st.image(local_path, use_container_width=True)
@@ -435,6 +444,18 @@ def render_home():
         return
 
     level = st.selectbox("Select Level", levels, key="level_select", help="Choose your CEFR level")
+
+    # Check if this level is empty (template only)
+    if is_level_empty(level):
+        st.markdown(f"""<div class="glass-card" style="text-align:center;border-color:rgba(245,158,11,0.3)">
+            <div style="font-size:2rem;margin-bottom:0.5rem">📝</div>
+            <div style="font-weight:700;color:#fbbf24;font-size:1.1rem;margin-bottom:0.5rem">{level} — Empty Template</div>
+            <div style="color:#94a3b8;font-size:0.9rem">
+                This level file exists but has no vocabulary data yet.<br>
+                 </div>
+        </div>""", unsafe_allow_html=True)
+        return
+
     day_info = get_day_info(level)
     if not day_info:
         st.warning(f"No data found for level {level}.")
@@ -477,6 +498,14 @@ def render_home():
         "Day 4": ("Directions, Seasons & Pronouns", "Cardinal directions, months & pronouns", "#fbbf24"),
         "Day 5": ("Verbs & Time Phrases", "Essential verbs & telling time", "#22d3ee"),
     }
+
+    # Override for ENT level
+    if level == "ENT":
+        DAY_META = {
+            "Day 1": ("Movie & TV Phrases", "Common subtitle lines from movies & TV shows", "#f472b6"),
+            "Day 2": ("Emotions & Reactions", "Drama, reality TV emotions & reactions", "#fb923c"),
+            "Day 3": ("Streaming & Pop Culture", "Social media, music & streaming vocabulary", "#a78bfa"),
+        }
 
     for day_name, count in day_info.items():
         title, desc, color = DAY_META.get(day_name, (day_name, "", "#818cf8"))
