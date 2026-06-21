@@ -2,10 +2,11 @@
 import random
 import os
 import time
+import base64
 import streamlit as st
 import pandas as pd
 from lib.excel_manager import get_available_levels, get_day_info, load_vocab, load_all_vocab, is_level_empty
-from lib.image_fetcher import fetch_image_for_row, fetch_image_url, validate_image_url
+from lib.image_fetcher import fetch_image_for_row
 from lib.tts_service import pronounce_word, slow_word, spell_word, get_audio_paths
 
 # ── Page Config ──
@@ -310,23 +311,106 @@ div[data-testid="element-container"]:has(.mcq-container) + div[data-testid="elem
     min-width: 140px !important;
 }
 
-/* Centered & sized images on all screens */
-div[data-testid="stImage"] > img {
-    max-width: 110px !important;
-    max-height: 110px !important;
-    width: auto !important;
-    height: auto !important;
-    border-radius: 12px !important;
-    margin: 0.5rem auto !important;
-    display: block !important;
-    box-shadow: 0 4px 15px rgba(0,0,0,0.3) !important;
+/* Fixed square flashcard image (300x300, cropped to fill) */
+.flashcard-img-box {
+    width: 300px;
+    height: 300px;
+    margin: 0.75rem auto;
+    border-radius: 16px;
+    overflow: hidden;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+}
+.flashcard-img-box img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+    pointer-events: none;
+    -webkit-user-drag: none;
+}
+@media (max-width: 600px) {
+    .flashcard-img-box {
+        width: 80vw;
+        height: 80vw;
+        max-width: 300px;
+        max-height: 300px;
+    }
+}
+
+/* Search input box */
+div[data-testid="stTextInput"] input {
+    background: rgba(30, 41, 59, 0.55) !important;
     border: 1px solid rgba(255, 255, 255, 0.1) !important;
-    pointer-events: none !important;
-    -webkit-user-drag: none !important;
+    border-radius: 14px !important;
+    color: #f8fafc !important;
+    padding: 0.85rem 1.1rem !important;
+    font-size: 1rem !important;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.2) !important;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease !important;
+}
+div[data-testid="stTextInput"] input::placeholder {
+    color: #64748b !important;
+}
+div[data-testid="stTextInput"] input:focus {
+    border-color: rgba(99, 102, 241, 0.5) !important;
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15) !important;
+}
+div[data-testid="stTextInput"] > div {
+    background: transparent !important;
+    border: none !important;
+}
+
+/* Search tab — result card */
+.search-card {
+    background: rgba(15, 23, 42, 0.65);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 20px;
+    padding: 1.5rem;
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    box-shadow: 0 12px 32px 0 rgba(0, 0, 0, 0.28);
+    margin-bottom: 1.25rem;
+    animation: fadeIn 0.35s ease-out;
+}
+.search-meta-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    margin-bottom: 0.5rem;
+}
+.search-loc {
+    font-size: 0.7rem;
+    color: #818cf8;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+.search-meaning {
+    text-align: center;
+    font-size: 1.15rem;
+    font-weight: 600;
+    color: #c7d2fe;
+    margin: 0.4rem 0 0.2rem 0;
+}
+.search-example {
+    background: rgba(99, 102, 241, 0.06);
+    border: 1px solid rgba(99, 102, 241, 0.15);
+    border-radius: 12px;
+    padding: 0.85rem 1rem;
+    color: #cbd5e1;
+    font-size: 0.95rem;
+    margin-top: 0.75rem;
+}
+.search-empty {
+    text-align: center;
+    color: #64748b;
+    padding: 2.5rem 1rem;
 }
 
 /* Scrap proofing rules */
-.glass-card, .german-word, .phonetic, .note-text, img, button, div[data-testid="stMarkdownContainer"] {
+.glass-card, .search-card, .german-word, .phonetic, .note-text, img, button, div[data-testid="stMarkdownContainer"] {
     user-select: none !important;
     -webkit-user-select: none !important;
     -moz-user-select: none !important;
@@ -341,11 +425,13 @@ div[data-testid="stImage"] > img {
 @media (max-width: 768px) {
     .block-container { padding: 1rem 0.5rem !important; }
     .glass-card { padding: 1.25rem; border-radius: 20px; }
+    .search-card { padding: 1.1rem; border-radius: 18px; }
     .german-word { font-size: 1.85rem; }
     .day-card { padding: 1rem 1.15rem; }
     .stat-card { padding: 0.85rem; }
     .stat-value { font-size: 1.25rem; }
 }
+
 </style>""", unsafe_allow_html=True)
 
 # ── Session State Init ──
@@ -353,10 +439,12 @@ DEFAULTS = {
     "screen": "home", "level": None, "day": None, "deck": [], "idx": 0,
     "score": 0, "attempts": 0, "streak": 0, "max_streak": 0,
     "answered": False, "selected": None, "show_image": False,
-    "tts_cache": {},
-    "image_search_results": {},
-    "card_images": {},
+    # tts_cache removed (not used) to avoid holding unused session data
     "debug_images": False,
+    # Search tab state
+    "search_query": "",
+    "search_results_cache": None,
+    "search_shown_images": set(),
 }
 for k, v in DEFAULTS.items():
     if k not in st.session_state:
@@ -373,32 +461,32 @@ def _badge(gender):
     return f'<span class="badge badge-{cls}">{label}</span>'
 
 
-def _get_and_show_image(row, level, day, row_idx):
-    # Check if we have it in session state first
-    card_images = st.session_state.card_images
-    if row_idx in card_images:
-        local_path = card_images[row_idx]
-        if local_path:
-            try:
-                # local_path can be a filesystem path or a URL
-                if str(local_path).lower().startswith(('http://','https://')):
-                    st.image(local_path, use_container_width=True)
-                    if st.session_state.debug_images:
-                        st.caption(f"🌐 From session cache (url): `{local_path}`")
-                    return
-                else:
-                    if os.path.exists(local_path):
-                        st.image(local_path, use_container_width=True)
-                        if st.session_state.debug_images:
-                            st.caption(f"📁 From session cache: `{local_path}`")
-                        return
-            except Exception:
-                pass
+def _image_to_data_uri(local_path):
+    """Read a local image file and return a base64 data URI, or None on failure."""
+    try:
+        ext = os.path.splitext(local_path)[1].lower().lstrip(".")
+        mime = "jpeg" if ext in ("jpg", "jpeg") else (ext or "png")
+        with open(local_path, "rb") as f:
+            b64 = base64.b64encode(f.read()).decode()
+        return f"data:image/{mime};base64,{b64}"
+    except Exception:
+        return None
 
-    # If not in session state, fetch it dynamically
+
+def _render_square_image(src):
+    """Render an image (URL or data URI) inside the fixed 300x300 cropped box."""
+    st.markdown(
+        f'<div class="flashcard-img-box"><img src="{src}" /></div>',
+        unsafe_allow_html=True,
+    )
+
+
+def _get_and_show_image(row, level, day, row_idx):
+    # Always fetch image dynamically on demand (no session caching)
     row_dict = row.to_dict() if hasattr(row, "to_dict") else dict(row)
-    session_results = st.session_state.image_search_results
-    
+    # Pass empty session_results so fetcher performs a fresh search
+    session_results = {}
+
     local_path, debug_info = fetch_image_for_row(row_dict, session_results)
 
     if st.session_state.debug_images:
@@ -416,27 +504,27 @@ def _get_and_show_image(row, level, day, row_idx):
                 st.error(f"Error: {debug_info['error']}")
 
     if local_path:
-        # local_path might be a URL now; cache and show directly
-        card_images[row_idx] = local_path
-        try:
-            st.image(local_path, use_container_width=True)
+        if str(local_path).lower().startswith(("http://", "https://")):
+            _render_square_image(local_path)
             return
-        except Exception:
-            st.caption("Could not display image.")
-            return
+        elif os.path.exists(local_path):
+            data_uri = _image_to_data_uri(local_path)
+            if data_uri:
+                _render_square_image(data_uri)
+                return
+        st.caption("Could not display image.")
+        return
 
     st.caption("No image available.")
-    
-import os  # needed for os.path.exists in _get_and_show_image
 
 
 # ══════════════════════════════════════
 # SCREEN: HOME
 # ══════════════════════════════════════
 def render_home():
-    st.markdown('<div style="text-align:center;margin-bottom:0.5rem"><span style="font-size:3.5rem">🇩🇪</span></div>', unsafe_allow_html=True)
+    st.markdown('<div style="text-align:center"><span style="font-size:2rem">🇩🇪</span></div>', unsafe_allow_html=True)
     st.markdown('<h1 style="text-align:center;font-weight:800;font-size:2.8rem;background:linear-gradient(90deg,#818cf8,#a78bfa,#22d3ee);-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin:0">DeutschFlash Master</h1>', unsafe_allow_html=True)
-    st.markdown('<p style="text-align:center;color:#94a3b8;font-size:1.05rem;margin-bottom:2rem">Select a level and day to practice active retrieval & visual association</p>', unsafe_allow_html=True)
+    st.markdown('<p style="text-align:center;color:#94a3b8;font-size:0.9rem;margin-bottom:2rem">Select a level and day to practice active retrieval & visual association</p>', unsafe_allow_html=True)
 
     levels = get_available_levels()
     if not levels:
@@ -460,33 +548,6 @@ def render_home():
     if not day_info:
         st.warning(f"No data found for level {level}.")
         return
-
-    # Count cached audio files for this level
-    cached_pronounce = 0
-    cached_slow = 0
-    cached_spell = 0
-    
-    level_folder = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "audio_cache", level)
-    if os.path.exists(level_folder):
-        for day_name in os.listdir(level_folder):
-            day_path = os.path.join(level_folder, day_name)
-            if os.path.isdir(day_path):
-                for cat in ["pronounce", "slow", "spell"]:
-                    cat_path = os.path.join(day_path, cat)
-                    if os.path.exists(cat_path):
-                        count = len([f for f in os.listdir(cat_path) if f.endswith(".mp3")])
-                        if cat == "pronounce":
-                            cached_pronounce += count
-                        elif cat == "slow":
-                            cached_slow += count
-                        elif cat == "spell":
-                            cached_spell += count
-
-    st.markdown(f"""<div style="font-size:0.85rem;color:#64748b;margin-top:-1rem;margin-bottom:1rem;display:flex;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;">
-        <span>Normal Cached: <b>{cached_pronounce}</b></span>
-        <span>Slow Cached: <b>{cached_slow}</b></span>
-        <span>Spell Cached: <b>{cached_spell}</b></span>
-    </div>""", unsafe_allow_html=True)
 
     st.markdown("---")
     total_words = sum(day_info.values())
@@ -524,13 +585,11 @@ def render_home():
                 st.session_state.level = level
                 st.session_state.day = day_name
                 deck = load_vocab(level, day_name)
-                # Shuffling
                 deck = deck.sample(frac=1).reset_index(drop=True)
-                # Adding paths
                 deck["audio_pronounce_path"] = [get_audio_paths(level, day_name, row["_row_idx"], row["german_word"])["pronounce"] for _, row in deck.iterrows()]
                 deck["audio_slow_path"] = [get_audio_paths(level, day_name, row["_row_idx"], row["german_word"])["slow"] for _, row in deck.iterrows()]
                 deck["audio_spell_path"] = [get_audio_paths(level, day_name, row["_row_idx"], row["german_word"])["spell"] for _, row in deck.iterrows()]
-                
+
                 st.session_state.deck = deck
                 st.session_state.idx = 0
                 st.session_state.score = 0
@@ -541,9 +600,7 @@ def render_home():
                 st.session_state.selected = None
                 st.session_state.show_image = False
                 st.session_state.screen = "quiz"
-                # Clear session caches
-                st.session_state.card_images = {}
-                st.session_state.image_search_results = {}
+                # image cache keys removed; no-op
                 st.rerun()
 
     st.markdown("---")
@@ -565,7 +622,7 @@ def render_home():
             deck["audio_pronounce_path"] = [get_audio_paths(level, str(row["_day"]), row["_row_idx"], row["german_word"])["pronounce"] for _, row in deck.iterrows()]
             deck["audio_slow_path"] = [get_audio_paths(level, str(row["_day"]), row["_row_idx"], row["german_word"])["slow"] for _, row in deck.iterrows()]
             deck["audio_spell_path"] = [get_audio_paths(level, str(row["_day"]), row["_row_idx"], row["german_word"])["spell"] for _, row in deck.iterrows()]
-            
+
             st.session_state.deck = deck
             st.session_state.idx = 0
             st.session_state.score = 0
@@ -576,8 +633,7 @@ def render_home():
             st.session_state.selected = None
             st.session_state.show_image = False
             st.session_state.screen = "quiz"
-            st.session_state.card_images = {}
-            st.session_state.image_search_results = {}
+            # image cache keys removed; no-op
             st.rerun()
 
 
@@ -598,34 +654,13 @@ def render_quiz():
 
     # Level/Day label
     day_label = "Marathon" if st.session_state.day == "__all__" else st.session_state.day
-    st.markdown(f'<div style="text-align:center;font-size:0.85rem;color:#818cf8;font-weight:700;letter-spacing:0.15em;text-transform:uppercase;margin-bottom:0.75rem">{st.session_state.level} — {day_label}</div>', unsafe_allow_html=True)
+    st.markdown(f'<div style="text-align:center;font-size:0.7rem;color:#818cf8;font-weight:500;letter-spacing:0.15em;text-transform:uppercase;">{st.session_state.level} — {day_label}</div>', unsafe_allow_html=True)
 
-    # Top bar navigation
-    c1, c2 = st.columns([1, 1])
-    with c1:
-        if st.button("← Home", key="home_btn"):
-            st.session_state.screen = "home"
-            st.rerun()
-    with c2:
-        if st.session_state.answered:
-            if st.button("Next ➔", key="next_btn_top", type="primary", use_container_width=True):
-                st.session_state.idx += 1
-                st.session_state.answered = False
-                st.session_state.selected = None
-                st.session_state.show_image = False
-                st.rerun()
-
-    # Progress & Streak row (positioned just above the progress line)
-    col_streak_left, col_streak_right = st.columns([1, 1])
-    with col_streak_left:
-        st.markdown(f'<div style="font-size:0.85rem;color:#94a3b8;margin-top:0.35rem">Card {idx+1} of {total}</div>', unsafe_allow_html=True)
-    with col_streak_right:
-        st.markdown(f'<div class="streak-box" style="float:right;margin-bottom:0.15rem">🔥 {st.session_state.streak}</div>', unsafe_allow_html=True)
-
-    st.progress(idx / total)
+    # Progress / card counter
+    st.markdown(f'<div style="font-size:0.85rem;color:#94a3b8;text-align:center;margin-top:0.1rem">Card {idx+1} of {total}</div>', unsafe_allow_html=True)
 
     gender = str(row.get("gender", ""))
-    st.markdown(f'<div style="text-align:right;margin-top:0.5rem">{_badge(gender)}</div>', unsafe_allow_html=True)
+    st.markdown(f'<div style="text-align:right;margin:0.5rem 0">{_badge(gender)}</div>', unsafe_allow_html=True)
 
     # Image
     if st.session_state.show_image or st.session_state.answered:
@@ -647,7 +682,8 @@ def render_quiz():
     if note and note != "nan":
         st.markdown(f'<div style="text-align:center;margin-top:0.4rem"><span class="note-text">{note}</span></div>', unsafe_allow_html=True)
 
-    # TTS buttons
+    # TTS buttons (kept in one row via .tts-container CSS hook)
+    st.markdown('<div class="tts-container"></div>', unsafe_allow_html=True)
     tts_col1, tts_col2, tts_col3 = st.columns(3)
     with tts_col1:
         if st.button("Normal", key=f"tts_pron_{idx}", use_container_width=True):
@@ -670,18 +706,17 @@ def render_quiz():
         actual_day = str(row.get("_day", st.session_state.day))
         if actual_day == "__all__":
             actual_day = st.session_state.day
-            
+
         if should_spell:
             mode_type = "spell"
         elif should_slow:
             mode_type = "slow"
         else:
             mode_type = "pronounce"
-            
+
         paths = get_audio_paths(st.session_state.level, actual_day, int(row["_row_idx"]), word)
         target_path = paths[mode_type]
-        
-        # Verify directory structure and generate if missing
+
         if not os.path.exists(target_path) or os.path.getsize(target_path) == 0:
             with st.spinner(f"Generating {mode_type}..."):
                 if should_spell:
@@ -690,8 +725,7 @@ def render_quiz():
                     slow_word(word, level=st.session_state.level, day=actual_day, row_idx=int(row["_row_idx"]))
                 else:
                     pronounce_word(word, level=st.session_state.level, day=actual_day, row_idx=int(row["_row_idx"]))
-                    
-        # Reset triggering states
+
         if should_spell:
             st.session_state[f"play_spell_{idx}"] = False
         elif should_slow:
@@ -703,7 +737,6 @@ def render_quiz():
                 st.session_state[auto_key] = True
 
         if os.path.exists(target_path) and os.path.getsize(target_path) > 0:
-            import base64
             with open(target_path, "rb") as f_audio:
                 b64_audio = base64.b64encode(f_audio.read()).decode()
             st.markdown(f'<audio autoplay src="data:audio/mp3;base64,{b64_audio}"></audio>', unsafe_allow_html=True)
@@ -839,25 +872,215 @@ def render_summary():
             st.rerun()
 
 
-# ── Router ──
-screen = st.session_state.screen
-if screen == "home":
-    render_home()
-elif screen == "quiz":
-    render_quiz()
-elif screen == "summary":
-    render_summary()
+# ══════════════════════════════════════
+# TAB: SEARCH
+# ══════════════════════════════════════
+@st.cache_data(show_spinner=False, ttl=600)
+def _build_search_index():
+    """Load every level's full vocab into one combined DataFrame, tagged with level."""
+    levels = get_available_levels()
+    frames = []
+    for level in levels:
+        if is_level_empty(level):
+            continue
+        df = load_all_vocab(level)
+        if df is None or df.empty:
+            continue
+        df = df.copy()
+        df["_level"] = level
+        frames.append(df)
+    if not frames:
+        return pd.DataFrame()
+    return pd.concat(frames, ignore_index=True)
 
-# ── Debug Controls (at the bottom) ──
-st.markdown("<br><br><hr style='border:0;border-top:1px solid rgba(255,255,255,0.05)'>", unsafe_allow_html=True)
-col_dbg1, col_dbg2 = st.columns([1, 1])
-with col_dbg1:
-    st.session_state.debug_images = st.checkbox("🔍 Debug image/audio details", value=st.session_state.debug_images)
-with col_dbg2:
-    if st.button("🧹 Clear cache", key="clear_cache_btn", use_container_width=True):
-        st.session_state.tts_cache = {}
-        st.session_state.card_images = {}
-        st.session_state.image_search_results = {}
-        st.success("Session cache cleared!")
-        time.sleep(1)
-        st.rerun()
+
+def _search_matches(query: str, df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty or not query.strip():
+        return df.iloc[0:0]
+    q = query.strip().lower()
+    word_col = df.get("german_word", pd.Series([""] * len(df))).astype(str).str.lower()
+    meaning_col = df.get("meaning", pd.Series([""] * len(df))).astype(str).str.lower()
+    mask = word_col.str.contains(q, na=False, regex=False) | meaning_col.str.contains(q, na=False, regex=False)
+    matches = df[mask].copy()
+    # Rank: exact german_word match first, then "starts with", then everything else
+    def _rank(w):
+        w = str(w).lower()
+        if w == q:
+            return 0
+        if w.startswith(q):
+            return 1
+        return 2
+    matches["_rank"] = matches["german_word"].apply(_rank)
+    matches = matches.sort_values("_rank").drop(columns="_rank").reset_index(drop=True)
+    return matches
+
+
+def _render_search_card(row, card_key: str):
+    word = str(row.get("german_word", ""))
+    meaning = str(row.get("meaning", ""))
+    phonetic = str(row.get("pronunciation", ""))
+    note = str(row.get("note", ""))
+    gender = str(row.get("gender", ""))
+    example = str(row.get("example_sentence", ""))
+    level = str(row.get("_level", ""))
+    day = str(row.get("_day", ""))
+
+    st.markdown('<div class="search-card">', unsafe_allow_html=True)
+
+    loc_label = f"{level}" + (f" — {day}" if day and day != "nan" else "")
+    st.markdown(
+        f'<div class="search-meta-row"><span class="search-loc">{loc_label}</span>{_badge(gender)}</div>',
+        unsafe_allow_html=True,
+    )
+
+    st.markdown(f'<div class="german-word">{word}</div>', unsafe_allow_html=True)
+    st.markdown(
+        f'<div style="text-align:center"><span class="phonetic">Pronounced: [{phonetic}]</span></div>',
+        unsafe_allow_html=True,
+    )
+    if note and note != "nan":
+        st.markdown(
+            f'<div style="text-align:center;margin-top:0.4rem"><span class="note-text">{note}</span></div>',
+            unsafe_allow_html=True,
+        )
+
+    st.markdown(f'<div class="search-meaning">= {meaning}</div>', unsafe_allow_html=True)
+
+    if example and example != "nan":
+        st.markdown(f'<div class="search-example">📝 {example}</div>', unsafe_allow_html=True)
+
+    # Image — on demand
+    if card_key in st.session_state.search_shown_images:
+        _get_and_show_image(row, level, day, card_key)
+    else:
+        if st.button("👁️ Show Image", key=f"search_img_{card_key}", use_container_width=True):
+            st.session_state.search_shown_images.add(card_key)
+            st.rerun()
+
+    # TTS buttons
+    st.markdown('<div class="tts-container"></div>', unsafe_allow_html=True)
+    tts_col1, tts_col2, tts_col3 = st.columns(3)
+    row_idx = int(row["_row_idx"]) if "_row_idx" in row and pd.notna(row["_row_idx"]) else 0
+    actual_day = day if day and day != "nan" else "Search"
+
+    with tts_col1:
+        if st.button("Normal", key=f"search_tts_pron_{card_key}", use_container_width=True):
+            with st.spinner("Generating audio..."):
+                pronounce_word(word, level=level, day=actual_day, row_idx=row_idx)
+            st.session_state[f"search_play_{card_key}"] = "pronounce"
+    with tts_col2:
+        if st.button("Slow", key=f"search_tts_slow_{card_key}", use_container_width=True):
+            with st.spinner("Generating audio..."):
+                slow_word(word, level=level, day=actual_day, row_idx=row_idx)
+            st.session_state[f"search_play_{card_key}"] = "slow"
+    with tts_col3:
+        if st.button("Spell", key=f"search_tts_spell_{card_key}", use_container_width=True):
+            with st.spinner("Generating audio..."):
+                spell_word(word, level=level, day=actual_day, row_idx=row_idx)
+            st.session_state[f"search_play_{card_key}"] = "spell"
+
+    play_mode = st.session_state.get(f"search_play_{card_key}")
+    if play_mode:
+        paths = get_audio_paths(level, actual_day, row_idx, word)
+        target_path = paths.get(play_mode, "")
+        if os.path.exists(target_path) and os.path.getsize(target_path) > 0:
+            with open(target_path, "rb") as f_audio:
+                b64_audio = base64.b64encode(f_audio.read()).decode()
+            st.markdown(f'<audio autoplay src="data:audio/mp3;base64,{b64_audio}"></audio>', unsafe_allow_html=True)
+        st.session_state[f"search_play_{card_key}"] = None
+
+    st.markdown('</div>', unsafe_allow_html=True)
+
+
+def render_search():
+    st.markdown(
+        '<h2 style="text-align:center;font-weight:800;font-size:1.8rem;color:#f1f5f9;margin-bottom:0.25rem">🔍 Word Search</h2>',
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        '<p style="text-align:center;color:#94a3b8;font-size:0.875rem;margin-bottom:1.5rem">Search any German word or English meaning across all levels</p>',
+        unsafe_allow_html=True,
+    )
+
+    query = st.text_input(
+        "Search",
+        value=st.session_state.search_query,
+        placeholder="e.g. Haus, mother, danke...",
+        label_visibility="collapsed",
+        key="search_input",
+    )
+    st.session_state.search_query = query
+
+    index_df = _build_search_index()
+
+    if index_df.empty:
+        st.markdown(
+            '<div class="search-empty">No vocabulary data found. Add words under <code>data/</code> first.</div>',
+            unsafe_allow_html=True,
+        )
+        return
+
+    if not query.strip():
+        st.markdown(
+            '<div class="search-empty">👆 Start typing to search across every level and day.</div>',
+            unsafe_allow_html=True,
+        )
+        return
+
+    matches = _search_matches(query, index_df)
+
+    if matches.empty:
+        st.markdown(
+            f'<div class="search-empty">No results for "<strong>{query}</strong>". Try a different word.</div>',
+            unsafe_allow_html=True,
+        )
+        return
+
+    st.markdown(
+        f'<div style="color:#64748b;font-size:0.8rem;margin-bottom:0.75rem">{len(matches)} result(s) found</div>',
+        unsafe_allow_html=True,
+    )
+
+    MAX_RESULTS = 25
+    for i, (_, row) in enumerate(matches.head(MAX_RESULTS).iterrows()):
+        card_key = f"{row.get('_level','')}_{row.get('_day','')}_{row.get('_row_idx', i)}_{i}"
+        _render_search_card(row, card_key)
+
+    if len(matches) > MAX_RESULTS:
+        st.caption(f"Showing first {MAX_RESULTS} of {len(matches)} results — refine your search for more precise matches.")
+
+
+# ── Router: top-level tabs separate Practice from Search ──
+tab_practice, tab_search = st.tabs(["📚 Practice", "🔍 Search"])
+
+with tab_practice:
+    screen = st.session_state.screen
+    if screen == "home":
+        render_home()
+    elif screen == "quiz":
+        render_quiz()
+    elif screen == "summary":
+        render_summary()
+
+with tab_search:
+    render_search()
+
+# ── Debug Controls (developer-only, hidden from end users) ──
+# Visit the app with ?debug=1 in the URL to reveal these.
+if st.query_params.get("debug") == "1":
+    st.markdown("<br><br><hr style='border:0;border-top:1px solid rgba(255,255,255,0.05)'>", unsafe_allow_html=True)
+    col_dbg1, col_dbg2 = st.columns([1, 1])
+    with col_dbg1:
+        st.session_state.debug_images = st.checkbox("🔍 Debug image/audio details", value=st.session_state.debug_images)
+    with col_dbg2:
+        if st.button("🧹 Clear cache", key="clear_cache_btn", use_container_width=True):
+            st.session_state.tts_cache = {}
+            # image caches removed; clear other search helper state
+            st.session_state.search_shown_images = set()
+            try:
+                _build_search_index.clear()
+            except Exception:
+                pass
+            st.success("Session cache cleared!")
+            time.sleep(1)
+            st.rerun()

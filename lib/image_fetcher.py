@@ -11,7 +11,17 @@ directly via `st.image(url)`.
 import os
 import hashlib
 import requests
-import streamlit as st
+try:
+    import streamlit as st
+except Exception:
+    # Provide a minimal no-op replacement for st.cache_data used by this module
+    class _NoopCache:
+        def __call__(self, *args, **kwargs):
+            def _decorator(f):
+                return f
+            return _decorator
+
+    st = type('st', (), {'cache_data': _NoopCache()})
 from io import BytesIO
 from ddgs import DDGS
 from ddgs.exceptions import RatelimitException, TimeoutException, DDGSException

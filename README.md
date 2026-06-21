@@ -41,6 +41,10 @@ PROJECT VOCAB/
     ├── data_generator.py   # Excel file generator
     ├── excel_manager.py    # Read/write Excel operations
     └── image_fetcher.py    # DuckDuckGo image search
+
+Additional: A lightweight Flask clone is available at `clone_app/` that provides
+an HTML/Tailwind mobile-friendly UI and JSON APIs reusing the same `lib/`
+helpers. See `clone_app/README.md` for quick start instructions.
 ```
 
 ## Excel Column Structure
