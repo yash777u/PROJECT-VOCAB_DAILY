@@ -420,6 +420,56 @@ div[data-testid="stTextInput"] > div {
 /* Animations */
 @keyframes fadeIn { from {opacity:0; transform:translateY(6px)} to {opacity:1; transform:translateY(0)} }
 @keyframes slideUp { from {opacity:0; transform:translateY(12px)} to {opacity:1; transform:translateY(0)} }
+@keyframes pulse-glow { 0%,100%{box-shadow:0 0 8px rgba(239,68,68,0.3)} 50%{box-shadow:0 0 20px rgba(239,68,68,0.6)} }
+
+/* Random Test — highlighted word in sentence */
+.test-sentence {
+    font-size: 1.35rem;
+    font-weight: 500;
+    color: #e2e8f0;
+    text-align: center;
+    line-height: 2;
+    margin: 0.75rem 0;
+    word-break: break-word;
+}
+.test-sentence .highlight-word {
+    background: linear-gradient(135deg, rgba(99,102,241,0.25), rgba(139,92,246,0.25));
+    border: 1px solid rgba(139,92,246,0.45);
+    border-radius: 8px;
+    padding: 0.2rem 0.55rem;
+    color: #a78bfa;
+    font-weight: 700;
+}
+
+/* Timer bar */
+.test-timer {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    font-size: 1.1rem;
+    font-weight: 700;
+    padding: 0.5rem 1rem;
+    border-radius: 999px;
+    margin: 0.5rem auto;
+    width: fit-content;
+}
+.timer-ok {
+    color: #34d399;
+    background: rgba(16,185,129,0.08);
+    border: 1px solid rgba(16,185,129,0.2);
+}
+.timer-warn {
+    color: #fbbf24;
+    background: rgba(245,158,11,0.08);
+    border: 1px solid rgba(245,158,11,0.2);
+}
+.timer-danger {
+    color: #f87171;
+    background: rgba(239,68,68,0.1);
+    border: 1px solid rgba(239,68,68,0.3);
+    animation: pulse-glow 1s ease-in-out infinite;
+}
 
 /* Responsive adjustments */
 @media (max-width: 768px) {
@@ -427,6 +477,7 @@ div[data-testid="stTextInput"] > div {
     .glass-card { padding: 1.25rem; border-radius: 20px; }
     .search-card { padding: 1.1rem; border-radius: 18px; }
     .german-word { font-size: 1.85rem; }
+    .test-sentence { font-size: 1.15rem; }
     .day-card { padding: 1rem 1.15rem; }
     .stat-card { padding: 0.85rem; }
     .stat-value { font-size: 1.25rem; }
@@ -445,6 +496,18 @@ DEFAULTS = {
     "search_query": "",
     "search_results_cache": None,
     "search_shown_images": set(),
+    # Random Test tab state
+    "test_screen": "setup",  # setup | running | summary
+    "test_level": None,
+    "test_deck": [],
+    "test_idx": 0,
+    "test_score": 0,
+    "test_attempts": 0,
+    "test_answered": False,
+    "test_selected": None,
+    "test_start_time": None,
+    "test_time_limit": 125,  # seconds
+    "test_answers_log": [],  # list of dicts for review
 }
 for k, v in DEFAULTS.items():
     if k not in st.session_state:
@@ -739,7 +802,8 @@ def render_quiz():
         if os.path.exists(target_path) and os.path.getsize(target_path) > 0:
             with open(target_path, "rb") as f_audio:
                 b64_audio = base64.b64encode(f_audio.read()).decode()
-            st.markdown(f'<audio autoplay src="data:audio/mp3;base64,{b64_audio}"></audio>', unsafe_allow_html=True)
+            import streamlit.components.v1 as _c
+            _c.html(f'<audio autoplay src="data:audio/mp3;base64,{b64_audio}"></audio>', height=0)
 
     st.markdown("<br>", unsafe_allow_html=True)
 
@@ -986,7 +1050,8 @@ def _render_search_card(row, card_key: str):
         if os.path.exists(target_path) and os.path.getsize(target_path) > 0:
             with open(target_path, "rb") as f_audio:
                 b64_audio = base64.b64encode(f_audio.read()).decode()
-            st.markdown(f'<audio autoplay src="data:audio/mp3;base64,{b64_audio}"></audio>', unsafe_allow_html=True)
+            import streamlit.components.v1 as _c
+            _c.html(f'<audio autoplay src="data:audio/mp3;base64,{b64_audio}"></audio>', height=0)
         st.session_state[f"search_play_{card_key}"] = None
 
     st.markdown('</div>', unsafe_allow_html=True)
@@ -1050,8 +1115,482 @@ def render_search():
         st.caption(f"Showing first {MAX_RESULTS} of {len(matches)} results — refine your search for more precise matches.")
 
 
-# ── Router: top-level tabs separate Practice from Search ──
-tab_practice, tab_search = st.tabs(["📚 Practice", "🔍 Search"])
+# ══════════════════════════════════════
+# TAB: RANDOM TEST
+# ══════════════════════════════════════
+TEST_WORD_COUNT = 25
+TEST_TIME_LIMIT = 250  # 25 words × 10s each
+
+
+def _highlight_word_in_sentence(sentence: str, word: str) -> str:
+    """Wrap the German word inside the sentence with a highlight span.
+    Handles articles (der/die/das) by also matching the bare noun."""
+    import re
+    # Try exact match first
+    pattern = re.compile(re.escape(word), re.IGNORECASE)
+    if pattern.search(sentence):
+        return pattern.sub(lambda m: f'<span class="highlight-word">{m.group()}</span>', sentence, count=1)
+    # Try without leading article (der/die/das/ein/eine/einen)
+    bare = re.sub(r'^(der|die|das|ein|eine|einen)\s+', '', word, flags=re.IGNORECASE).strip()
+    if bare:
+        pattern = re.compile(re.escape(bare), re.IGNORECASE)
+        if pattern.search(sentence):
+            return pattern.sub(lambda m: f'<span class="highlight-word">{m.group()}</span>', sentence, count=1)
+    # Fallback — just bold the word below the sentence
+    return sentence + f' <span class="highlight-word">[{word}]</span>'
+
+
+SHEET_TEST_WORD_COUNT = 10
+SHEET_TEST_TIME_LIMIT = 100  # 10 words × 10s each
+
+
+def render_test_setup():
+    st.markdown('<div style="text-align:center"><span style="font-size:2rem">🎯</span></div>', unsafe_allow_html=True)
+    st.markdown(
+        '<h1 style="text-align:center;font-weight:800;font-size:2.4rem;'
+        'background:linear-gradient(90deg,#f472b6,#fb923c,#fbbf24);'
+        '-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin:0">'
+        'Random Test</h1>',
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        '<p style="text-align:center;color:#94a3b8;font-size:0.9rem;margin-bottom:1.5rem">'
+        'Timed challenge — read the sentence, spot the highlighted word, pick the meaning!</p>',
+        unsafe_allow_html=True,
+    )
+
+    levels = get_available_levels()
+    non_empty = [l for l in levels if not is_level_empty(l)]
+    if not non_empty:
+        st.error("No vocabulary data found.")
+        return
+
+    level = st.selectbox("Select Level", non_empty, key="test_level_select")
+
+    day_info = get_day_info(level)
+    total_words = sum(day_info.values())
+
+    # Test mode toggle
+    test_mode = st.radio(
+        "Test Mode",
+        ["📚 Level-wise (25 words · 125s)", "📄 Sheet-wise (10 words · 50s)"],
+        key="test_mode_radio",
+        horizontal=True,
+    )
+    is_sheet_mode = "Sheet-wise" in test_mode
+
+    # Sheet selector (only shown in sheet mode)
+    selected_sheet = None
+    sheet_word_count = 0
+    if is_sheet_mode:
+        sheet_names = list(day_info.keys())
+        if not sheet_names:
+            st.warning("No sheets with data found in this level.")
+            return
+        selected_sheet = st.selectbox(
+            "Select Sheet",
+            sheet_names,
+            key="test_sheet_select",
+            format_func=lambda s: f"{s}  ({day_info.get(s, 0)} words)",
+        )
+        sheet_word_count = day_info.get(selected_sheet, 0)
+
+    # Determine counts for display
+    q_count = SHEET_TEST_WORD_COUNT if is_sheet_mode else TEST_WORD_COUNT
+    t_limit = SHEET_TEST_TIME_LIMIT if is_sheet_mode else TEST_TIME_LIMIT
+    pool_words = sheet_word_count if is_sheet_mode else total_words
+    pool_label = f"{selected_sheet}" if is_sheet_mode else f"{len(day_info)} sheet(s)"
+
+    # Info card
+    st.markdown(f"""
+    <div class="glass-card" style="text-align:center">
+        <div style="font-size:1.5rem;margin-bottom:0.3rem">📊</div>
+        <div style="font-weight:700;color:#f1f5f9;font-size:1.05rem">{level} — {pool_words} words available</div>
+        <div style="color:#94a3b8;font-size:0.85rem;margin-top:0.35rem">
+            {pool_label} · {q_count} random questions · {t_limit}s time limit
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    if pool_words < 4:
+        st.warning("Need at least 4 words to generate a test.")
+        return
+
+    st.markdown("<br>", unsafe_allow_html=True)
+    if st.button("🚀 Start Test", key="start_test_btn", type="primary", use_container_width=True):
+        # Load vocabulary based on mode
+        if is_sheet_mode and selected_sheet:
+            vocab = load_vocab(level, selected_sheet)
+            if vocab.empty:
+                st.error("Could not load vocabulary for this sheet.")
+                return
+            # Add _day column for consistency
+            vocab["_day"] = selected_sheet
+        else:
+            vocab = load_all_vocab(level)
+            if vocab.empty:
+                st.error("Could not load vocabulary.")
+                return
+
+        # Filter rows that have a valid example_sentence
+        valid = vocab[
+            vocab["example_sentence"].astype(str).str.strip().ne("")
+            & vocab["example_sentence"].notna()
+            & vocab["example_sentence"].astype(str).ne("nan")
+        ].copy()
+        if len(valid) < 4:
+            st.error("Not enough words with example sentences to run a test.")
+            return
+        n = min(q_count, len(valid))
+        test_deck = valid.sample(n=n).reset_index(drop=True)
+        st.session_state.test_level = level
+        st.session_state.test_deck = test_deck
+        st.session_state.test_idx = 0
+        st.session_state.test_score = 0
+        st.session_state.test_attempts = 0
+        st.session_state.test_answered = False
+        st.session_state.test_selected = None
+        st.session_state.test_start_time = time.time()
+        st.session_state.test_time_limit = t_limit
+        st.session_state.test_answers_log = []
+        st.session_state.test_screen = "running"
+        st.rerun()
+
+
+def render_test_running():
+    deck = st.session_state.test_deck
+    idx = st.session_state.test_idx
+    level = st.session_state.test_level
+
+    # ── Check time (server-side) ──
+    elapsed = time.time() - st.session_state.test_start_time
+    remaining = max(0, st.session_state.test_time_limit - elapsed)
+
+    if remaining <= 0 or idx >= len(deck):
+        st.session_state.test_screen = "summary"
+        st.rerun()
+        return
+
+    row = deck.iloc[idx]
+    total = len(deck)
+
+    # Hidden time-up button — JS will click this when countdown hits zero
+    if st.button("⏰ Time Up", key="test_time_up_btn", type="secondary", use_container_width=True):
+        st.session_state.test_screen = "summary"
+        st.rerun()
+        return
+
+    # Timer placeholder — JS will update this live
+    remaining_int = int(remaining)
+    mins = remaining_int // 60
+    secs = remaining_int % 60
+    st.markdown(
+        f'<div class="test-timer timer-ok" id="live-timer">⏱️ <span id="timer-value">{mins}:{secs:02d}</span></div>',
+        unsafe_allow_html=True,
+    )
+
+    # Client-side JS: live countdown + auto-click time-up button when done
+    import streamlit.components.v1 as components
+    components.html(f"""
+    <script>
+    (function() {{
+        let remaining = {remaining_int};
+        const parentDoc = window.parent.document;
+
+        function findTimerEl() {{
+            return parentDoc.getElementById('timer-value');
+        }}
+        function findTimerBox() {{
+            return parentDoc.getElementById('live-timer');
+        }}
+        function findTimeUpBtn() {{
+            const buttons = parentDoc.querySelectorAll('button');
+            for (const btn of buttons) {{
+                if (btn.textContent.includes('Time Up')) return btn;
+            }}
+            return null;
+        }}
+
+        // Hide the time-up button visually
+        const hideBtn = findTimeUpBtn();
+        if (hideBtn) {{
+            hideBtn.style.display = 'none';
+        }}
+
+        function tick() {{
+            remaining--;
+            if (remaining <= 0) {{
+                const btn = findTimeUpBtn();
+                if (btn) {{
+                    btn.style.display = '';
+                    btn.click();
+                }}
+                return;
+            }}
+            const el = findTimerEl();
+            const box = findTimerBox();
+            if (el) {{
+                const m = Math.floor(remaining / 60);
+                const s = remaining % 60;
+                el.textContent = m + ':' + String(s).padStart(2, '0');
+            }}
+            if (box) {{
+                box.className = 'test-timer ' + (remaining > 60 ? 'timer-ok' : remaining > 30 ? 'timer-warn' : 'timer-danger');
+            }}
+            setTimeout(tick, 1000);
+        }}
+        setTimeout(tick, 1000);
+    }})();
+    </script>
+    """, height=0)
+
+    # Header
+    st.markdown(
+        f'<div style="text-align:center;font-size:0.7rem;color:#f472b6;font-weight:500;'
+        f'letter-spacing:0.15em;text-transform:uppercase;">{level} — Random Test</div>',
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        f'<div style="font-size:0.85rem;color:#94a3b8;text-align:center;margin-top:0.1rem">'
+        f'Question {idx + 1} of {total}</div>',
+        unsafe_allow_html=True,
+    )
+
+    # Progress bar
+    st.progress((idx) / total)
+
+    gender = str(row.get("gender", ""))
+    st.markdown(f'<div style="text-align:right;margin:0.5rem 0">{_badge(gender)}</div>', unsafe_allow_html=True)
+
+    # Show sentence with highlighted word
+    word = str(row.get("german_word", ""))
+    sentence = str(row.get("example_sentence", ""))
+    highlighted = _highlight_word_in_sentence(sentence, word)
+    st.markdown(f'<div class="test-sentence">{highlighted}</div>', unsafe_allow_html=True)
+
+    # Audio button + hint in one row
+    audio_col, hint_col = st.columns([1, 3])
+    play_counter_key = f"test_audio_count_{idx}"
+    if play_counter_key not in st.session_state:
+        st.session_state[play_counter_key] = 0
+    with audio_col:
+        if st.button("🔊", key=f"test_audio_{idx}", use_container_width=True):
+            st.session_state[play_counter_key] = st.session_state[play_counter_key] + 1
+    with hint_col:
+        st.markdown(
+            '<div style="color:#64748b;font-size:0.75rem;margin-top:0.6rem">'
+            'What does the highlighted word mean?</div>',
+            unsafe_allow_html=True,
+        )
+
+    # Play audio if counter > 0 (each click increments)
+    play_count = st.session_state.get(play_counter_key, 0)
+    played_key = f"test_audio_played_{idx}"
+    last_played = st.session_state.get(played_key, 0)
+    if play_count > 0 and play_count != last_played:
+        st.session_state[played_key] = play_count
+        actual_day = str(row.get("_day", "Test"))
+        row_idx = int(row["_row_idx"]) if "_row_idx" in row and pd.notna(row["_row_idx"]) else 0
+        paths = get_audio_paths(level, actual_day, row_idx, word)
+        target_path = paths["pronounce"]
+        if not os.path.exists(target_path) or os.path.getsize(target_path) == 0:
+            with st.spinner("🔊"):
+                pronounce_word(word, level=level, day=actual_day, row_idx=row_idx)
+        if os.path.exists(target_path) and os.path.getsize(target_path) > 0:
+            with open(target_path, "rb") as f_audio:
+                b64_audio = base64.b64encode(f_audio.read()).decode()
+            import streamlit.components.v1 as _c
+            _c.html(f'<audio autoplay src="data:audio/mp3;base64,{b64_audio}"></audio><!-- {play_count} -->', height=0)
+
+    # MCQ options
+    correct = str(row.get("meaning", ""))
+    options = [str(row.get(f"option_{i}", "")) for i in range(1, 5)]
+    options = [o for o in options if o and o != "nan"]
+    if correct not in options:
+        if len(options) >= 4:
+            options[0] = correct
+        else:
+            options.append(correct)
+    random.seed(hash(word + str(idx) + "test"))
+    random.shuffle(options)
+
+    if not st.session_state.test_answered:
+        st.markdown('<div class="mcq-container"></div>', unsafe_allow_html=True)
+        cols = st.columns(2)
+        for i, opt in enumerate(options):
+            with cols[i % 2]:
+                if st.button(opt, key=f"test_opt_{i}_{idx}", use_container_width=True):
+                    # Re-check time on answer click
+                    if time.time() - st.session_state.test_start_time >= st.session_state.test_time_limit:
+                        st.session_state.test_screen = "summary"
+                        st.rerun()
+                        return
+                    st.session_state.test_answered = True
+                    st.session_state.test_selected = opt
+                    st.session_state.test_attempts += 1
+                    is_right = (opt == correct)
+                    if is_right:
+                        st.session_state.test_score += 1
+                    st.session_state.test_answers_log.append({
+                        "word": word,
+                        "sentence": sentence,
+                        "correct": correct,
+                        "selected": opt,
+                        "is_correct": is_right,
+                    })
+                    st.rerun()
+    else:
+        selected = st.session_state.test_selected
+        is_correct = selected == correct
+        cols = st.columns(2)
+        for i, opt in enumerate(options):
+            with cols[i % 2]:
+                if opt == correct:
+                    st.markdown(f'<div class="opt-btn opt-correct">✓ {opt}</div>', unsafe_allow_html=True)
+                elif opt == selected and not is_correct:
+                    st.markdown(f'<div class="opt-btn opt-wrong">✗ {opt}</div>', unsafe_allow_html=True)
+                else:
+                    st.markdown(f'<div class="opt-btn" style="opacity:0.4">{opt}</div>', unsafe_allow_html=True)
+
+        phonetic = str(row.get("pronunciation", ""))
+        if is_correct:
+            st.markdown(f"""<div class="fb-correct">
+                <div style="font-weight:700;font-size:0.85rem;letter-spacing:0.1em;text-transform:uppercase;margin-bottom:0.4rem">Richtig!</div>
+                <div style="font-size:1.05rem">"{word}" [{phonetic}] = "{correct}"</div>
+            </div>""", unsafe_allow_html=True)
+        else:
+            st.markdown(f"""<div class="fb-wrong">
+                <div style="font-weight:700;font-size:0.85rem;letter-spacing:0.1em;text-transform:uppercase;margin-bottom:0.4rem">Falsch!</div>
+                <div style="font-size:1.05rem">"{word}" [{phonetic}] = "{correct}" (not "{selected}")</div>
+            </div>""", unsafe_allow_html=True)
+
+        st.markdown("<br>", unsafe_allow_html=True)
+        if st.button("Next ➔", key="test_next_btn", type="primary", use_container_width=True):
+            # Re-check time on next click
+            if time.time() - st.session_state.test_start_time >= st.session_state.test_time_limit:
+                st.session_state.test_screen = "summary"
+                st.rerun()
+                return
+            st.session_state.test_idx += 1
+            st.session_state.test_answered = False
+            st.session_state.test_selected = None
+            st.rerun()
+
+
+def render_test_summary():
+    elapsed = time.time() - st.session_state.test_start_time
+    time_up = elapsed >= st.session_state.test_time_limit
+    total_answered = st.session_state.test_attempts
+    total_questions = len(st.session_state.test_deck)
+    score = st.session_state.test_score
+    accuracy = round((score / total_answered) * 100) if total_answered > 0 else 0
+    time_taken = min(elapsed, st.session_state.test_time_limit)
+    mins = int(time_taken // 60)
+    secs = int(time_taken % 60)
+
+    # Header
+    if time_up:
+        st.markdown(
+            '<div style="text-align:center;font-size:2.5rem;margin-bottom:0.25rem">⏰</div>',
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            '<h1 style="text-align:center;font-weight:800;font-size:2.2rem;color:#fbbf24;margin:0">Time\'s Up!</h1>',
+            unsafe_allow_html=True,
+        )
+    else:
+        st.markdown(
+            '<div style="text-align:center;font-size:2.5rem;margin-bottom:0.25rem">🏆</div>',
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            '<h1 style="text-align:center;font-weight:800;font-size:2.2rem;color:#34d399;margin:0">Test Complete!</h1>',
+            unsafe_allow_html=True,
+        )
+
+    st.markdown(
+        f'<p style="text-align:center;color:#94a3b8;font-size:0.95rem;margin-bottom:1.5rem">{st.session_state.test_level} Level Random Test</p>',
+        unsafe_allow_html=True,
+    )
+
+    # Stats row
+    c1, c2, c3, c4 = st.columns(4)
+    with c1:
+        st.markdown(f"""<div class="stat-card">
+            <div class="stat-label">Score</div>
+            <div class="stat-value" style="color:#818cf8">{score}/{total_questions}</div>
+        </div>""", unsafe_allow_html=True)
+    with c2:
+        st.markdown(f"""<div class="stat-card">
+            <div class="stat-label">Answered</div>
+            <div class="stat-value" style="color:#a78bfa">{total_answered}/{total_questions}</div>
+        </div>""", unsafe_allow_html=True)
+    with c3:
+        st.markdown(f"""<div class="stat-card">
+            <div class="stat-label">Accuracy</div>
+            <div class="stat-value" style="color:#34d399">{accuracy}%</div>
+        </div>""", unsafe_allow_html=True)
+    with c4:
+        st.markdown(f"""<div class="stat-card">
+            <div class="stat-label">Time</div>
+            <div class="stat-value" style="color:#fbbf24">{mins}:{secs:02d}</div>
+        </div>""", unsafe_allow_html=True)
+
+    # Answers review
+    log = st.session_state.test_answers_log
+    if log:
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown(
+            '<div style="font-weight:700;color:#f1f5f9;font-size:1.1rem;margin-bottom:0.75rem">📋 Answer Review</div>',
+            unsafe_allow_html=True,
+        )
+        for i, entry in enumerate(log):
+            icon = "✅" if entry["is_correct"] else "❌"
+            word = entry["word"]
+            correct_ans = entry["correct"]
+            selected_ans = entry["selected"]
+            sentence = entry["sentence"]
+            if entry["is_correct"]:
+                st.markdown(
+                    f'<div style="background:rgba(16,185,129,0.06);border:1px solid rgba(16,185,129,0.15);'
+                    f'border-radius:12px;padding:0.75rem 1rem;margin-bottom:0.5rem;font-size:0.9rem">'
+                    f'{icon} <strong>{word}</strong> = {correct_ans}</div>',
+                    unsafe_allow_html=True,
+                )
+            else:
+                st.markdown(
+                    f'<div style="background:rgba(239,68,68,0.06);border:1px solid rgba(239,68,68,0.15);'
+                    f'border-radius:12px;padding:0.75rem 1rem;margin-bottom:0.5rem;font-size:0.9rem">'
+                    f'{icon} <strong>{word}</strong> = {correct_ans}'
+                    f'<span style="color:#f87171"> (you: {selected_ans})</span></div>',
+                    unsafe_allow_html=True,
+                )
+
+    # Action buttons
+    st.markdown("<br>", unsafe_allow_html=True)
+    c1, c2 = st.columns(2)
+    with c1:
+        if st.button("🔄 Retake Test", key="test_retake", type="primary", use_container_width=True):
+            st.session_state.test_screen = "setup"
+            st.rerun()
+    with c2:
+        if st.button("🏠 Back to Setup", key="test_home", use_container_width=True):
+            st.session_state.test_screen = "setup"
+            st.rerun()
+
+
+def render_test_tab():
+    screen = st.session_state.test_screen
+    if screen == "setup":
+        render_test_setup()
+    elif screen == "running":
+        render_test_running()
+    elif screen == "summary":
+        render_test_summary()
+
+
+# ── Router: top-level tabs separate Practice, Search, and Test ──
+tab_practice, tab_search, tab_test = st.tabs(["📚 Practice", "🔍 Search", "🎯 Random Test"])
 
 with tab_practice:
     screen = st.session_state.screen
@@ -1064,6 +1603,9 @@ with tab_practice:
 
 with tab_search:
     render_search()
+
+with tab_test:
+    render_test_tab()
 
 # ── Debug Controls (developer-only, hidden from end users) ──
 # Visit the app with ?debug=1 in the URL to reveal these.

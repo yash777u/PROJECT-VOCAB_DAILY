@@ -53,15 +53,15 @@ def _url_cache_path(url: str) -> str:
     return os.path.join(IMAGE_CACHE_DIR, f"url_{slug}.jpg")
 
 
-def fetch_image_for_row(row: dict, session_results: dict = None) -> tuple[str, dict]:
+def fetch_image_for_row(row: dict, session_results: dict = None, max_retries: int = 3) -> tuple[str, dict]:
     """Return (image_url_or_empty, debug_info) for the image matching this vocab row.
 
-    This version does not download or cache images. It picks a thumbnail/image
-    URL from DDG results (if any) and returns it for direct display in the UI.
+    Only uses the 'keyword' column for searching — never falls back to german_word.
+    Retries the DDG search up to `max_retries` times on failure before giving up.
     """
     keyword = str(row.get("keyword", "")).strip()
     german = str(row.get("german_word", "")).strip()
-    search_term = keyword if keyword else german
+    search_term = keyword  # Only use keyword column, no fallback
 
     info = {
         "search_term": search_term,
@@ -72,6 +72,7 @@ def fetch_image_for_row(row: dict, session_results: dict = None) -> tuple[str, d
     }
 
     if not search_term:
+        info["error"] = "keyword column is empty — no image search performed"
         return "", info
 
     # Attempt to reuse session cache if available
@@ -80,17 +81,26 @@ def fetch_image_for_row(row: dict, session_results: dict = None) -> tuple[str, d
         results = session_results[search_term]
 
     if not results:
-        try:
-            results = _ddg_search(search_term, max_results=5)
-            if session_results is not None:
-                session_results[search_term] = results
-        except (RatelimitException, TimeoutException, DDGSException, Exception) as e:
-            info["error"] = f"DDG search error: {e}"
-            return "", info
+        last_error = None
+        for attempt in range(1, max_retries + 1):
+            try:
+                results = _ddg_search(search_term, max_results=5)
+                if results:
+                    break
+            except (RatelimitException, TimeoutException, DDGSException, Exception) as e:
+                last_error = e
+                import time as _time
+                _time.sleep(1)  # brief pause before retry
+                continue
 
-    if not results:
-        info["error"] = "DDG returned no results"
-        return "", info
+        if session_results is not None and results:
+            session_results[search_term] = results
+
+        if not results:
+            info["error"] = f"DDG returned no results after {max_retries} attempts"
+            if last_error:
+                info["error"] += f" (last error: {last_error})"
+            return "", info
 
     # Collect valid URLs from results
     valid_urls = []

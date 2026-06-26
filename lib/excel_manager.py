@@ -38,12 +38,11 @@ def is_level_empty(level: str) -> bool:
     if not os.path.exists(filepath):
         return True
     try:
-        wb = load_workbook(filepath, read_only=True)
-        for ws in wb.worksheets:
-            if ws.max_row and ws.max_row > 1:
-                wb.close()
+        # Use pandas to reliably count rows (max_row can be None in read_only mode)
+        all_sheets = pd.read_excel(filepath, sheet_name=None, engine="openpyxl")
+        for sheet_name, df in all_sheets.items():
+            if len(df) > 0:
                 return False
-        wb.close()
     except Exception:
         pass
     return True
@@ -55,12 +54,12 @@ def get_day_info(level: str) -> dict:
         return {}
     info = {}
     try:
-        wb = load_workbook(filepath, read_only=True)
-        for ws in wb.worksheets:
-            count = max(0, (ws.max_row or 1) - 1)
+        # Use pandas for reliable row counting (max_row can be None in read_only mode)
+        all_sheets = pd.read_excel(filepath, sheet_name=None, engine="openpyxl")
+        for sheet_name, df in all_sheets.items():
+            count = len(df)
             if count > 0:
-                info[ws.title] = count
-        wb.close()
+                info[sheet_name] = count
     except Exception:
         pass
     return info
