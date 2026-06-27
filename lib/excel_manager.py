@@ -1,7 +1,18 @@
 """
-Excel manager for DeutschFlash — all read/write operations on vocab Excel files.
-_row_idx is stamped from original sheet position before any shuffle so
-update_image_url() always writes to the correct Excel row.
+Excel manager for DeutschFlash — data layer for vocabulary files.
+
+All vocabulary lives in ``data/<LEVEL>_vocab.xlsx`` files.  Each workbook
+contains one or more sheets (e.g. "Day 1", "Day 2" or topic names like
+"Our Classroom").  Every sheet shares the same 12-column schema:
+
+    german_word | pronunciation | meaning | example_sentence |
+    option_1..4 | gender | emoji | keyword | note
+
+Key design detail:
+    ``_row_idx`` is stamped from the **original sheet index** before any
+    shuffle so that audio cache paths and image lookups always resolve
+    to the correct Excel row (``Excel row = _row_idx + 2`` accounting
+    for the 1-based header row).
 """
 
 import os
@@ -13,7 +24,12 @@ DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
 
 
 def get_available_levels() -> list[str]:
-    """Return all levels found in data/ directory (including empty templates)."""
+    """Discover all vocabulary levels by scanning ``data/*_vocab.xlsx``.
+
+    Returns:
+        Sorted list of level names (e.g. ``["A1", "A2", "Movie"]``).
+        Skips temporary lock-files created by Excel/LibreOffice.
+    """
     pattern = os.path.join(DATA_DIR, "*_vocab.xlsx")
     files = glob.glob(pattern)
     levels = []
@@ -33,7 +49,17 @@ def get_available_levels() -> list[str]:
 
 
 def is_level_empty(level: str) -> bool:
-    """Check if a level has zero vocabulary data (only headers or no rows)."""
+    """Check whether a level file contains any vocabulary rows.
+
+    Uses pandas to reliably count rows (openpyxl's ``max_row`` can
+    return ``None`` in read-only mode for certain Excel files).
+
+    Args:
+        level: Level name prefix (e.g. ``"A1"``).
+
+    Returns:
+        ``True`` if the file doesn't exist or every sheet has zero data rows.
+    """
     filepath = os.path.join(DATA_DIR, f"{level}_vocab.xlsx")
     if not os.path.exists(filepath):
         return True

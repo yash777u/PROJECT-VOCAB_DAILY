@@ -1,4 +1,14 @@
-"""DeutschFlash — Streamlit German Vocabulary Learning App."""
+"""
+DeutschFlash — Streamlit German Vocabulary Learning App.
+
+A mobile-first, glassmorphism-styled flashcard app for learning German.
+Features three tabs:
+  • Practice — Day-by-day or marathon flashcard quiz with TTS & images
+  • Search   — Full-text search across every level and sheet
+  • Random Test — Timed sentence-context quiz with dict.cc hover tooltips
+
+Dependencies: streamlit, pandas, openpyxl, edge-tts, ddgs, dict.cc.py
+"""
 import random
 import os
 import time
@@ -8,6 +18,7 @@ import pandas as pd
 from lib.excel_manager import get_available_levels, get_day_info, load_vocab, load_all_vocab, is_level_empty
 from lib.image_fetcher import fetch_image_for_row
 from lib.tts_service import pronounce_word, slow_word, spell_word, get_audio_paths
+from lib.translation_service import translate_sentence_words
 
 # ── Page Config ──
 st.set_page_config(page_title="DeutschFlash Master", page_icon="🇩🇪", layout="centered")
@@ -422,16 +433,17 @@ div[data-testid="stTextInput"] > div {
 @keyframes slideUp { from {opacity:0; transform:translateY(12px)} to {opacity:1; transform:translateY(0)} }
 @keyframes pulse-glow { 0%,100%{box-shadow:0 0 8px rgba(239,68,68,0.3)} 50%{box-shadow:0 0 20px rgba(239,68,68,0.6)} }
 
-/* Random Test — highlighted word in sentence */
+/* Random Test — sentence display */
 .test-sentence {
     font-size: 1.35rem;
     font-weight: 500;
     color: #e2e8f0;
     text-align: center;
-    line-height: 2;
+    line-height: 2.2;
     margin: 0.75rem 0;
     word-break: break-word;
 }
+/* Quiz word — highlighted, NO tooltip (would give away the answer) */
 .test-sentence .highlight-word {
     background: linear-gradient(135deg, rgba(99,102,241,0.25), rgba(139,92,246,0.25));
     border: 1px solid rgba(139,92,246,0.45);
@@ -439,6 +451,56 @@ div[data-testid="stTextInput"] > div {
     padding: 0.2rem 0.55rem;
     color: #a78bfa;
     font-weight: 700;
+}
+/* Dict.cc tooltip — hover to see English meaning */
+.tt-word {
+    position: relative;
+    cursor: help;
+    border-bottom: 1px dashed rgba(255,255,255,0.25);
+    transition: color 0.15s ease, border-color 0.15s ease;
+}
+.tt-word:hover {
+    color: #22d3ee;
+    border-bottom-color: #22d3ee;
+}
+.tt-word:hover::after {
+    content: attr(data-tip);
+    position: absolute;
+    bottom: 110%;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(15, 23, 42, 0.95);
+    color: #22d3ee;
+    font-size: 0.78rem;
+    font-weight: 600;
+    padding: 0.3rem 0.65rem;
+    border-radius: 8px;
+    border: 1px solid rgba(34, 211, 238, 0.25);
+    white-space: nowrap;
+    z-index: 100;
+    pointer-events: none;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+    animation: fadeIn 0.15s ease-out;
+}
+/* Mobile: tap to toggle tooltip via checkbox hack */
+@media (hover: none) {
+    .tt-word:active::after {
+        content: attr(data-tip);
+        position: absolute;
+        bottom: 110%;
+        left: 50%;
+        transform: translateX(-50%);
+        background: rgba(15, 23, 42, 0.95);
+        color: #22d3ee;
+        font-size: 0.78rem;
+        font-weight: 600;
+        padding: 0.3rem 0.65rem;
+        border-radius: 8px;
+        border: 1px solid rgba(34, 211, 238, 0.25);
+        white-space: nowrap;
+        z-index: 100;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+    }
 }
 
 /* Timer bar */
@@ -740,76 +802,139 @@ def render_quiz():
     word = str(row.get("german_word", ""))
     phonetic = str(row.get("pronunciation", ""))
     note = str(row.get("note", ""))
-    st.markdown(f'<div class="german-word">{word}</div>', unsafe_allow_html=True)
+    st.markdown(
+        f'<div class="german-word">{word}'
+        f' <span id="word-audio-trigger-{idx}" title="Play pronunciation"'
+        f' style="cursor:pointer;font-size:1.5rem;vertical-align:middle;opacity:0.6;'
+        f'transition:opacity 0.2s;display:inline-block"'
+        f' onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.6">🔊</span>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
     st.markdown(f'<div style="text-align:center"><span class="phonetic">Pronounced: [{phonetic}]</span></div>', unsafe_allow_html=True)
     if note and note != "nan":
         st.markdown(f'<div style="text-align:center;margin-top:0.4rem"><span class="note-text">{note}</span></div>', unsafe_allow_html=True)
+    # ── Word Audio (auto-play on load + 🔊 icon tap) ──
+    actual_day = str(row.get("_day", st.session_state.day))
+    if actual_day == "__all__":
+        actual_day = st.session_state.day
 
-    # TTS buttons (kept in one row via .tts-container CSS hook)
-    st.markdown('<div class="tts-container"></div>', unsafe_allow_html=True)
-    tts_col1, tts_col2, tts_col3 = st.columns(3)
-    with tts_col1:
-        if st.button("Normal", key=f"tts_pron_{idx}", use_container_width=True):
-            st.session_state[f"play_pronounce_{idx}"] = True
-    with tts_col2:
-        if st.button("Slow", key=f"tts_slow_{idx}", use_container_width=True):
-            st.session_state[f"play_slow_{idx}"] = True
-    with tts_col3:
-        if st.button("Spell", key=f"tts_spell_{idx}", use_container_width=True):
-            st.session_state[f"play_spell_{idx}"] = True
+    # Pre-generate word pronunciation audio (cached to disk)
+    word_b64 = ""
+    try:
+        with st.spinner(""):
+            word_audio_uri = pronounce_word(
+                word,
+                level=st.session_state.level,
+                day=actual_day,
+                row_idx=int(row["_row_idx"])
+            )
+        if word_audio_uri and "," in word_audio_uri:
+            word_b64 = word_audio_uri.split(",", 1)[1]
+    except Exception:
+        pass
 
-    # TTS playback
+    # Auto-play word audio once when card first loads
     auto_key = f"auto_played_{idx}"
-    should_auto = not st.session_state.answered and auto_key not in st.session_state
-    should_pronounce = st.session_state.get(f"play_pronounce_{idx}", False)
-    should_slow = st.session_state.get(f"play_slow_{idx}", False)
-    should_spell = st.session_state.get(f"play_spell_{idx}", False)
+    if auto_key not in st.session_state and word_b64:
+        st.session_state[auto_key] = True
+        import streamlit.components.v1 as _c
+        _c.html(
+            f'<audio autoplay src="data:audio/mp3;base64,{word_b64}"></audio>',
+            height=0
+        )
 
-    if should_auto or should_pronounce or should_slow or should_spell:
-        actual_day = str(row.get("_day", st.session_state.day))
-        if actual_day == "__all__":
-            actual_day = st.session_state.day
-
-        if should_spell:
-            mode_type = "spell"
-        elif should_slow:
-            mode_type = "slow"
-        else:
-            mode_type = "pronounce"
-
-        paths = get_audio_paths(st.session_state.level, actual_day, int(row["_row_idx"]), word)
-        target_path = paths[mode_type]
-
-        if not os.path.exists(target_path) or os.path.getsize(target_path) == 0:
-            with st.spinner(f"Generating {mode_type}..."):
-                if should_spell:
-                    spell_word(word, level=st.session_state.level, day=actual_day, row_idx=int(row["_row_idx"]))
-                elif should_slow:
-                    slow_word(word, level=st.session_state.level, day=actual_day, row_idx=int(row["_row_idx"]))
-                else:
-                    pronounce_word(word, level=st.session_state.level, day=actual_day, row_idx=int(row["_row_idx"]))
-
-        if should_spell:
-            st.session_state[f"play_spell_{idx}"] = False
-        elif should_slow:
-            st.session_state[f"play_slow_{idx}"] = False
-        else:
-            if should_pronounce:
-                st.session_state[f"play_pronounce_{idx}"] = False
-            if should_auto:
-                st.session_state[auto_key] = True
-
-        if os.path.exists(target_path) and os.path.getsize(target_path) > 0:
-            with open(target_path, "rb") as f_audio:
-                b64_audio = base64.b64encode(f_audio.read()).decode()
-            import streamlit.components.v1 as _c
-            _c.html(f'<audio autoplay src="data:audio/mp3;base64,{b64_audio}"></audio>', height=0)
+    # JS: wire 🔊 word icon — tap to replay, no rerun needed
+    import streamlit.components.v1 as _comp_word
+    _comp_word.html(f"""
+    <script>
+    (function() {{
+        const audioData = "{word_b64}";
+        const pd = window.parent.document;
+        function wire() {{
+            const icon = pd.getElementById('word-audio-trigger-{idx}');
+            if (!icon) return false;
+            icon.onclick = function(e) {{
+                e.preventDefault();
+                if (!audioData) return;
+                const audio = new Audio('data:audio/mp3;base64,' + audioData);
+                audio.play();
+            }};
+            return true;
+        }}
+        if (!wire()) {{
+            let tries = 0;
+            const iv = setInterval(function() {{
+                tries++;
+                if (wire() || tries > 30) clearInterval(iv);
+            }}, 150);
+        }}
+    }})();
+    </script>
+    """, height=0)
 
     st.markdown("<br>", unsafe_allow_html=True)
 
+    # Example sentence with hover tooltips + 🔊 icon
+    example = str(row.get("example_sentence", ""))
+    if example and example != "nan":
+        tooltips = translate_sentence_words(example, exclude_word=word)
+        highlighted_example = _highlight_word_in_sentence(example, word, tooltips=tooltips)
+
+        # Pre-generate sentence audio (cached to disk)
+        sentence_b64 = ""
+        try:
+            sentence_audio_uri = pronounce_word(example)
+            if sentence_audio_uri and "," in sentence_audio_uri:
+                sentence_b64 = sentence_audio_uri.split(",", 1)[1]
+        except Exception:
+            pass
+
+        # Sentence with inline 🔊 at the end
+        sentence_audio_icon = (
+            f' <span id="sentence-audio-trigger-{idx}" title="Play sentence" '
+            f'style="cursor:pointer;font-size:1rem;vertical-align:middle;opacity:0.6;'
+            f'transition:opacity 0.2s;display:inline-block" '
+            f'onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.6">🔊</span>'
+        )
+        st.markdown(
+            f'<div class="test-sentence" style="font-size:1.1rem;line-height:2;margin:0.25rem 0 0.75rem 0">'
+            f'{highlighted_example}{sentence_audio_icon}</div>',
+            unsafe_allow_html=True,
+        )
+
+        # JS: wire sentence 🔊 icon — plays client-side, no rerun
+        import streamlit.components.v1 as _comp_sent
+        _comp_sent.html(f"""
+        <script>
+        (function() {{
+            const audioData = "{sentence_b64}";
+            const pd = window.parent.document;
+            function wire() {{
+                const icon = pd.getElementById('sentence-audio-trigger-{idx}');
+                if (!icon) return false;
+                icon.onclick = function(e) {{
+                    e.preventDefault();
+                    if (!audioData) return;
+                    const audio = new Audio('data:audio/mp3;base64,' + audioData);
+                    audio.play();
+                }};
+                return true;
+            }}
+            if (!wire()) {{
+                let tries = 0;
+                const iv = setInterval(function() {{
+                    tries++;
+                    if (wire() || tries > 30) clearInterval(iv);
+                }}, 150);
+            }}
+        }})();
+        </script>
+        """, height=0)
+
     # MCQ
     correct = str(row.get("meaning", ""))
-    options = [str(row.get(f"option_{i}", "")) for i in range(1, 5)]
+    options = [str(row.get(f"option_{i}", "") ) for i in range(1, 5)]
     options = [o for o in options if o and o != "nan"]
     if correct not in options:
         if len(options) >= 4:
@@ -848,18 +973,15 @@ def render_quiz():
                 else:
                     st.markdown(f'<div class="opt-btn" style="opacity:0.4">{opt}</div>', unsafe_allow_html=True)
 
-        example = str(row.get("example_sentence", ""))
         if is_correct:
             st.markdown(f"""<div class="fb-correct">
                 <div style="font-weight:700;font-size:0.85rem;letter-spacing:0.1em;text-transform:uppercase;margin-bottom:0.4rem">Richtig! (Correct)</div>
                 <div style="font-size:1.05rem">"{word}" = "{correct}"</div>
-                <div style="font-size:1rem;margin-top:0.4rem;color:#6ee7b7">Example: {example}</div>
             </div>""", unsafe_allow_html=True)
         else:
             st.markdown(f"""<div class="fb-wrong">
                 <div style="font-weight:700;font-size:0.85rem;letter-spacing:0.1em;text-transform:uppercase;margin-bottom:0.4rem">Falsch! (Incorrect)</div>
                 <div style="font-size:1.05rem">"{word}" = "{correct}" (not "{selected}")</div>
-                <div style="font-size:1rem;margin-top:0.4rem;color:#fca5a5">Example: {example}</div>
             </div>""", unsafe_allow_html=True)
 
         st.markdown("<br>", unsafe_allow_html=True)
@@ -997,17 +1119,6 @@ def _render_search_card(row, card_key: str):
         unsafe_allow_html=True,
     )
 
-    st.markdown(f'<div class="german-word">{word}</div>', unsafe_allow_html=True)
-    st.markdown(
-        f'<div style="text-align:center"><span class="phonetic">Pronounced: [{phonetic}]</span></div>',
-        unsafe_allow_html=True,
-    )
-    if note and note != "nan":
-        st.markdown(
-            f'<div style="text-align:center;margin-top:0.4rem"><span class="note-text">{note}</span></div>',
-            unsafe_allow_html=True,
-        )
-
     st.markdown(f'<div class="search-meaning">= {meaning}</div>', unsafe_allow_html=True)
 
     if example and example != "nan":
@@ -1021,38 +1132,63 @@ def _render_search_card(row, card_key: str):
             st.session_state.search_shown_images.add(card_key)
             st.rerun()
 
-    # TTS buttons
-    st.markdown('<div class="tts-container"></div>', unsafe_allow_html=True)
-    tts_col1, tts_col2, tts_col3 = st.columns(3)
     row_idx = int(row["_row_idx"]) if "_row_idx" in row and pd.notna(row["_row_idx"]) else 0
     actual_day = day if day and day != "nan" else "Search"
 
-    with tts_col1:
-        if st.button("Normal", key=f"search_tts_pron_{card_key}", use_container_width=True):
-            with st.spinner("Generating audio..."):
-                pronounce_word(word, level=level, day=actual_day, row_idx=row_idx)
-            st.session_state[f"search_play_{card_key}"] = "pronounce"
-    with tts_col2:
-        if st.button("Slow", key=f"search_tts_slow_{card_key}", use_container_width=True):
-            with st.spinner("Generating audio..."):
-                slow_word(word, level=level, day=actual_day, row_idx=row_idx)
-            st.session_state[f"search_play_{card_key}"] = "slow"
-    with tts_col3:
-        if st.button("Spell", key=f"search_tts_spell_{card_key}", use_container_width=True):
-            with st.spinner("Generating audio..."):
-                spell_word(word, level=level, day=actual_day, row_idx=row_idx)
-            st.session_state[f"search_play_{card_key}"] = "spell"
+    # Pre-generate word audio for this search card
+    search_word_b64 = ""
+    try:
+        search_audio_uri = pronounce_word(word, level=level, day=actual_day, row_idx=row_idx)
+        if search_audio_uri and "," in search_audio_uri:
+            search_word_b64 = search_audio_uri.split(",", 1)[1]
+    except Exception:
+        pass
 
-    play_mode = st.session_state.get(f"search_play_{card_key}")
-    if play_mode:
-        paths = get_audio_paths(level, actual_day, row_idx, word)
-        target_path = paths.get(play_mode, "")
-        if os.path.exists(target_path) and os.path.getsize(target_path) > 0:
-            with open(target_path, "rb") as f_audio:
-                b64_audio = base64.b64encode(f_audio.read()).decode()
-            import streamlit.components.v1 as _c
-            _c.html(f'<audio autoplay src="data:audio/mp3;base64,{b64_audio}"></audio>', height=0)
-        st.session_state[f"search_play_{card_key}"] = None
+    # Unique trigger ID per search card (card_key is already unique)
+    trigger_id = f"search-word-audio-{card_key}"
+
+    # Word + inline 🔊 icon
+    st.markdown(
+        f'<div class="german-word">{word}'
+        f' <span id="{trigger_id}" title="Play pronunciation" '
+        f'style="cursor:pointer;font-size:1.5rem;vertical-align:middle;opacity:0.6;'
+        f'transition:opacity 0.2s;display:inline-block" '
+        f'onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.6">🔊</span>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
+    # JS: wire 🔊 icon — plays client-side, no rerun needed
+    import streamlit.components.v1 as _comp_sw
+    _comp_sw.html(f"""
+    <script>
+    (function() {{
+        const audioData = "{search_word_b64}";
+        const pd = window.parent.document;
+        function wire() {{
+            const icon = pd.getElementById('{trigger_id}');
+            if (!icon) return false;
+            icon.onclick = function(e) {{
+                e.preventDefault();
+                if (!audioData) return;
+                const audio = new Audio('data:audio/mp3;base64,' + audioData);
+                audio.play();
+            }};
+            return true;
+        }}
+        if (!wire()) {{
+            let tries = 0;
+            const iv = setInterval(function() {{
+                tries++;
+                if (wire() || tries > 30) clearInterval(iv);
+            }}, 150);
+        }}
+    }})();
+    </script>
+    """, height=0)
+
+    # Clean up old play_mode state if any lingered
+    st.session_state.pop(f"search_play_{card_key}", None)
 
     st.markdown('</div>', unsafe_allow_html=True)
 
@@ -1117,27 +1253,101 @@ def render_search():
 
 # ══════════════════════════════════════
 # TAB: RANDOM TEST
+# Timed sentence-context quiz with dict.cc hover tooltips.
+# The student reads a German sentence, identifies the highlighted
+# word, and picks its English meaning from four MCQ options.
 # ══════════════════════════════════════
 TEST_WORD_COUNT = 25
 TEST_TIME_LIMIT = 250  # 25 words × 10s each
 
 
-def _highlight_word_in_sentence(sentence: str, word: str) -> str:
-    """Wrap the German word inside the sentence with a highlight span.
-    Handles articles (der/die/das) by also matching the bare noun."""
+def _highlight_word_in_sentence(sentence: str, word: str, tooltips: dict[str, str] | None = None) -> str:
+    """Build the test sentence HTML with highlight + dict.cc tooltips.
+
+    1. The **quiz word** is wrapped in ``<span class="highlight-word">`` — no
+       tooltip, because showing its meaning would give away the answer.
+    2. Every other significant word gets a ``<span class="tt-word"
+       data-tip="english">`` so the student can hover for help.
+    3. Articles, pronouns, and punctuation are left plain.
+
+    Args:
+        sentence:  The German example sentence.
+        word:      The German quiz word (to highlight, NOT tooltip).
+        tooltips:  Dict of ``{german_token: english_meaning}`` from
+                   :func:`translate_sentence_words`. ``None`` = no tooltips.
+
+    Returns:
+        HTML string ready for ``st.markdown(unsafe_allow_html=True)``.
+    """
     import re
-    # Try exact match first
-    pattern = re.compile(re.escape(word), re.IGNORECASE)
-    if pattern.search(sentence):
-        return pattern.sub(lambda m: f'<span class="highlight-word">{m.group()}</span>', sentence, count=1)
-    # Try without leading article (der/die/das/ein/eine/einen)
+    if tooltips is None:
+        tooltips = {}
+
+    # Determine which tokens belong to the quiz word (to exclude from tooltips)
+    quiz_tokens: set[str] = set()
+    quiz_tokens.add(word.lower())
     bare = re.sub(r'^(der|die|das|ein|eine|einen)\s+', '', word, flags=re.IGNORECASE).strip()
     if bare:
+        quiz_tokens.add(bare.lower())
+    # Also add individual tokens of multi-word quiz words (e.g. "der Vater" → "Vater")
+    for part in word.split():
+        quiz_tokens.add(part.lower())
+
+    # First pass: mark the quiz word position in the sentence
+    # Try exact match, then bare noun match
+    quiz_marked = False
+    MARKER = '\x00QUIZ_START\x00'
+    MARKER_END = '\x00QUIZ_END\x00'
+
+    pattern = re.compile(re.escape(word), re.IGNORECASE)
+    if pattern.search(sentence):
+        sentence = pattern.sub(lambda m: f'{MARKER}{m.group()}{MARKER_END}', sentence, count=1)
+        quiz_marked = True
+    elif bare:
         pattern = re.compile(re.escape(bare), re.IGNORECASE)
         if pattern.search(sentence):
-            return pattern.sub(lambda m: f'<span class="highlight-word">{m.group()}</span>', sentence, count=1)
-    # Fallback — just bold the word below the sentence
-    return sentence + f' <span class="highlight-word">[{word}]</span>'
+            sentence = pattern.sub(lambda m: f'{MARKER}{m.group()}{MARKER_END}', sentence, count=1)
+            quiz_marked = True
+
+    # Split into segments around the quiz word marker
+    if quiz_marked:
+        parts = re.split(r'\x00QUIZ_START\x00|\x00QUIZ_END\x00', sentence)
+        # parts = [before, quiz_word_text, after]
+    else:
+        parts = [sentence]
+
+    def _wrap_tokens(text: str) -> str:
+        """Wrap individual words with tooltips where available."""
+        tokens = text.split(' ')
+        result_tokens = []
+        for tok in tokens:
+            # Strip punctuation to match against tooltip dict
+            stripped = tok.strip('.,!?;:"\'()[]–—-…')
+            if stripped and stripped in tooltips and stripped.lower() not in quiz_tokens:
+                tip = tooltips[stripped].replace('"', '&quot;')
+                # Re-attach surrounding punctuation
+                prefix = tok[:tok.index(stripped)] if stripped in tok else ''
+                suffix = tok[tok.index(stripped) + len(stripped):] if stripped in tok else ''
+                result_tokens.append(f'{prefix}<span class="tt-word" data-tip="{tip}">{stripped}</span>{suffix}')
+            else:
+                result_tokens.append(tok)
+        return ' '.join(result_tokens)
+
+    # Build final HTML
+    html_parts = []
+    if quiz_marked and len(parts) >= 3:
+        html_parts.append(_wrap_tokens(parts[0]))
+        html_parts.append(f'<span class="highlight-word">{parts[1]}</span>')
+        html_parts.append(_wrap_tokens(parts[2]))
+    elif quiz_marked and len(parts) == 2:
+        html_parts.append(_wrap_tokens(parts[0]))
+        html_parts.append(f'<span class="highlight-word">{parts[1]}</span>')
+    else:
+        # Fallback: no match found — append quiz word at end
+        html_parts.append(_wrap_tokens(sentence))
+        html_parts.append(f' <span class="highlight-word">[{word}]</span>')
+
+    return ''.join(html_parts)
 
 
 SHEET_TEST_WORD_COUNT = 10
@@ -1356,51 +1566,78 @@ def render_test_running():
         unsafe_allow_html=True,
     )
 
-    # Progress bar
-    st.progress((idx) / total)
+    # Progress bar — shown once, reflects current question position
+    st.progress((idx + 1) / total)
+
 
     gender = str(row.get("gender", ""))
     st.markdown(f'<div style="text-align:right;margin:0.5rem 0">{_badge(gender)}</div>', unsafe_allow_html=True)
 
-    # Show sentence with highlighted word
+    # Show sentence with highlighted word + dict.cc hover tooltips
     word = str(row.get("german_word", ""))
     sentence = str(row.get("example_sentence", ""))
-    highlighted = _highlight_word_in_sentence(sentence, word)
-    st.markdown(f'<div class="test-sentence">{highlighted}</div>', unsafe_allow_html=True)
 
-    # Audio button + hint in one row
-    audio_col, hint_col = st.columns([1, 3])
-    play_counter_key = f"test_audio_count_{idx}"
-    if play_counter_key not in st.session_state:
-        st.session_state[play_counter_key] = 0
-    with audio_col:
-        if st.button("🔊", key=f"test_audio_{idx}", use_container_width=True):
-            st.session_state[play_counter_key] = st.session_state[play_counter_key] + 1
-    with hint_col:
-        st.markdown(
-            '<div style="color:#64748b;font-size:0.75rem;margin-top:0.6rem">'
-            'What does the highlighted word mean?</div>',
-            unsafe_allow_html=True,
-        )
+    # Translate non-quiz words for hover tooltips (cached — only hits dict.cc once per word)
+    tooltips = translate_sentence_words(sentence, exclude_word=word)
 
-    # Play audio if counter > 0 (each click increments)
-    play_count = st.session_state.get(play_counter_key, 0)
-    played_key = f"test_audio_played_{idx}"
-    last_played = st.session_state.get(played_key, 0)
-    if play_count > 0 and play_count != last_played:
-        st.session_state[played_key] = play_count
-        actual_day = str(row.get("_day", "Test"))
-        row_idx = int(row["_row_idx"]) if "_row_idx" in row and pd.notna(row["_row_idx"]) else 0
-        paths = get_audio_paths(level, actual_day, row_idx, word)
-        target_path = paths["pronounce"]
-        if not os.path.exists(target_path) or os.path.getsize(target_path) == 0:
-            with st.spinner("🔊"):
-                pronounce_word(word, level=level, day=actual_day, row_idx=row_idx)
-        if os.path.exists(target_path) and os.path.getsize(target_path) > 0:
-            with open(target_path, "rb") as f_audio:
-                b64_audio = base64.b64encode(f_audio.read()).decode()
-            import streamlit.components.v1 as _c
-            _c.html(f'<audio autoplay src="data:audio/mp3;base64,{b64_audio}"></audio><!-- {play_count} -->', height=0)
+    highlighted = _highlight_word_in_sentence(sentence, word, tooltips=tooltips)
+
+    # Audio icon appended inline at end of sentence
+    audio_inline_btn = (
+        ' <span class="inline-audio-btn" id="inline-audio-trigger" '
+        'title="Play pronunciation" '
+        'style="cursor:pointer;font-size:1.1rem;vertical-align:middle;'
+        'margin-left:0.4rem;opacity:0.7;transition:opacity 0.2s;display:inline-block" '
+        'onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.7">'
+        '🔊</span>'
+    )
+    st.markdown(
+        f'<div class="test-sentence">{highlighted}{audio_inline_btn}</div>',
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        '<div style="color:#64748b;font-size:0.75rem;text-align:center;margin-top:-0.25rem;margin-bottom:0.5rem">'
+        'What does the highlighted word mean?</div>',
+        unsafe_allow_html=True,
+    )
+
+    # Pre-generate sentence audio at render time (cached to disk by pronounce_word)
+    sentence_b64 = ""
+    try:
+        sentence_data_uri = pronounce_word(sentence)
+        if sentence_data_uri and "," in sentence_data_uri:
+            sentence_b64 = sentence_data_uri.split(",", 1)[1]
+    except Exception:
+        pass
+
+    # Embed audio data in JS — clicking the inline 🔊 icon plays it client-side, no button needed
+    import streamlit.components.v1 as _comp_audio
+    _comp_audio.html(f"""
+    <script>
+    (function() {{
+        const audioData = "{sentence_b64}";
+        const pd = window.parent.document;
+        function wire() {{
+            const icon = pd.getElementById('inline-audio-trigger');
+            if (!icon) return false;
+            icon.onclick = function(e) {{
+                e.preventDefault();
+                if (!audioData) return;
+                const audio = new Audio('data:audio/mp3;base64,' + audioData);
+                audio.play();
+            }};
+            return true;
+        }}
+        if (!wire()) {{
+            let tries = 0;
+            const iv = setInterval(function() {{
+                tries++;
+                if (wire() || tries > 30) clearInterval(iv);
+            }}, 150);
+        }}
+    }})();
+    </script>
+    """, height=0)
 
     # MCQ options
     correct = str(row.get("meaning", ""))

@@ -1,11 +1,11 @@
 """
-Image fetcher for DeutschFlash — DuckDuckGo image search.
-Searches by keyword column. Falls back to german_word.
+Image fetcher for DeutschFlash — DuckDuckGo visual search.
 
-NOTE: image cache / disk persistence has been removed. This module will
-return image URLs from DuckDuckGo results and will not download or save
-images to data/image_cache/. The Streamlit UI can display remote URLs
-directly via `st.image(url)`.
+Searches exclusively by the ``keyword`` column for each vocabulary row.
+Includes a 3-attempt retry loop to handle transient DDG rate-limits.
+
+Images are NOT downloaded to disk — the Streamlit UI displays remote
+URLs directly via ``st.image(url)``.
 """
 
 import os
@@ -115,7 +115,7 @@ def fetch_image_for_row(row: dict, session_results: dict = None, max_retries: in
 
     # Pick a random URL and return it (do not download)
     import random
-    chosen_url = random.choice(valid_urls)
+    chosen_url = valid_urls[0]
     info["chosen_url"] = chosen_url
     info["all_urls"] = valid_urls
     info["source"] = "ddg_url"
