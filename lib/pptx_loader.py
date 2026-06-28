@@ -1,10 +1,13 @@
 import os
 import subprocess
 import base64
+import streamlit as st
 
+@st.cache_resource(show_spinner=False)
 def get_slide_images():
     """
     Ensure the PPTX file is converted to slides and return a list of base64 PNG data.
+    Cached for the lifetime of the server process — slides are re-loaded only on restart.
     """
     pptx_path = os.path.join("data", "German.pptx")
     cache_dir = os.path.join("data", "slides_cache")
