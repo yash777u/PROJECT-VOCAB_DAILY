@@ -2131,7 +2131,9 @@ def render_visuals_tab():
     .viewer-container:fullscreen .slide-img {{
         width: 100% !important;
         height: 100% !important;
-        object-fit: contain !important;
+        max-width: none !important;
+        max-height: none !important;
+        object-fit: fill; /* Default to fill so it occupies the entire screen space */
         border-radius: 0 !important;
         box-shadow: none !important;
     }}
@@ -2166,7 +2168,9 @@ def render_visuals_tab():
     .viewer-container:-webkit-full-screen .slide-img {{
         width: 100% !important;
         height: 100% !important;
-        object-fit: contain !important;
+        max-width: none !important;
+        max-height: none !important;
+        object-fit: fill; /* Default to fill so it occupies the entire screen space */
         border-radius: 0 !important;
         box-shadow: none !important;
     }}
@@ -2196,6 +2200,7 @@ def render_visuals_tab():
         </div>
         
         <div class="dots-container" id="dotsContainer"></div>
+        <div id="toast" style="position: absolute; bottom: 80px; background: rgba(15, 23, 42, 0.85); border: 1px solid rgba(255,255,255,0.15); color: #f8fafc; padding: 10px 20px; border-radius: 99px; font-size: 0.9rem; font-weight: 600; opacity: 0; transition: opacity 0.2s ease, transform 0.2s ease; transform: translateY(10px); pointer-events: none; z-index: 100;"></div>
     </div>
     
     <script>
@@ -2293,10 +2298,32 @@ def render_visuals_tab():
         if (e.key === 'ArrowLeft') prevSlide();
     }});
     
+    const fitModes = ['fill', 'cover', 'contain'];
+    let fitIdx = 0;
+    const toast = document.getElementById('toast');
+    
+    function showToast(text) {{
+        toast.textContent = text;
+        toast.style.opacity = '1';
+        toast.style.transform = 'translateY(0)';
+        setTimeout(() => {{
+            toast.style.opacity = '0';
+            toast.style.transform = 'translateY(10px)';
+        }}, 1200);
+    }}
+    
+    function cycleFitMode() {{
+        fitIdx = (fitIdx + 1) % fitModes.length;
+        const mode = fitModes[fitIdx];
+        slideImg.style.setProperty('object-fit', mode, 'important');
+        showToast(`Fit: ${{mode.toUpperCase()}}`);
+    }}
+
     let touchStartX = 0;
     let touchStartY = 0;
     let touchEndX = 0;
     let touchEndY = 0;
+    let lastTap = 0;
     
     viewer.addEventListener('touchstart', (e) => {{
         touchStartX = e.changedTouches[0].screenX;
@@ -2317,18 +2344,40 @@ def render_visuals_tab():
                 prevSlide();
             }}
         }} else if (Math.abs(deltaX) < 10 && Math.abs(deltaY) < 10) {{
-            // Tap gesture: toggle fullscreen if tapped on slide/image area (not controls)
+            const currentTime = new Date().getTime();
+            const tapLength = currentTime - lastTap;
             const isClickOnControls = e.target.closest('.top-bar') || e.target.closest('.dots-container') || e.target.closest('.nav-arrow');
-            if (!isClickOnControls) {{
-                toggleFullscreen();
+            
+            if (tapLength < 300 && tapLength > 0) {{
+                // Double tap: cycle fit modes!
+                if (!isClickOnControls) {{
+                    cycleFitMode();
+                }}
+                e.preventDefault();
+            }} else {{
+                // Single tap: toggle fullscreen (after a brief delay to check for double tap)
+                setTimeout(() => {{
+                    const newCurrentTime = new Date().getTime();
+                    if (newCurrentTime - lastTap >= 300) {{
+                        if (!isClickOnControls) {{
+                            toggleFullscreen();
+                        }}
+                    }}
+                }}, 300);
             }}
+            lastTap = currentTime;
         }}
-    }}, {{passive: true}});
+    }}, {{passive: false}});
     
-    // Also toggle fullscreen on click (desktop)
+    // Also toggle fullscreen on click (desktop) and double click to cycle fit mode
     slideArea.onclick = (e) => {{
         if (e.target.closest('.nav-arrow')) return;
         toggleFullscreen();
+    }};
+    
+    slideArea.ondblclick = (e) => {{
+        if (e.target.closest('.nav-arrow')) return;
+        cycleFitMode();
     }};
     
     showSlide(0);
