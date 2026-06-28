@@ -90,7 +90,7 @@ def fetch_image_for_row(row: dict, session_results: dict = None, max_retries: in
             except (RatelimitException, TimeoutException, DDGSException, Exception) as e:
                 last_error = e
                 import time as _time
-                _time.sleep(1)  # brief pause before retry
+                _time.sleep(0.2)  # brief pause before retry
                 continue
 
         if session_results is not None and results:

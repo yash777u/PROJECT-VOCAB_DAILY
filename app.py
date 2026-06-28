@@ -13,6 +13,7 @@ import random
 import os
 import time
 import base64
+import threading
 import streamlit as st
 import pandas as pd
 from lib.excel_manager import get_available_levels, get_day_info, load_vocab, load_all_vocab, is_level_empty
@@ -25,10 +26,9 @@ st.set_page_config(page_title="DeutschFlash Master", page_icon="🇩🇪", layou
 
 # ── Custom CSS ──
 st.markdown("""<style>
-@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap');
 
 html, body, [class*="css"] {
-    font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
     color: #f8fafc;
 }
 
@@ -554,6 +554,11 @@ DEFAULTS = {
     "answered": False, "selected": None, "show_image": False,
     # tts_cache removed (not used) to avoid holding unused session data
     "debug_images": False,
+    "image_cache": {},   # keyword -> (local_path, debug_info)
+    "quiz_tooltip_map": {},
+    "quiz_tooltip_example": None,
+    "test_tooltip_map": {},
+    "test_tooltip_sentence": None,
     # Search tab state
     "search_query": "",
     "search_results_cache": None,
@@ -607,12 +612,16 @@ def _render_square_image(src):
 
 
 def _get_and_show_image(row, level, day, row_idx):
-    # Always fetch image dynamically on demand (no session caching)
     row_dict = row.to_dict() if hasattr(row, "to_dict") else dict(row)
-    # Pass empty session_results so fetcher performs a fresh search
-    session_results = {}
+    keyword = str(row_dict.get("keyword", "")).strip()
 
-    local_path, debug_info = fetch_image_for_row(row_dict, session_results)
+    if keyword and keyword in st.session_state.image_cache:
+        local_path, debug_info = st.session_state.image_cache[keyword]
+    else:
+        session_results = {}
+        local_path, debug_info = fetch_image_for_row(row_dict, session_results)
+        if keyword:
+            st.session_state.image_cache[keyword] = (local_path, debug_info)
 
     if st.session_state.debug_images:
         with st.expander("🔍 Image search debug", expanded=True):
@@ -641,6 +650,48 @@ def _get_and_show_image(row, level, day, row_idx):
         return
 
     st.caption("No image available.")
+
+
+def _compute_audio_paths(deck, level, day_name=None):
+    def _paths(row):
+        d = day_name if day_name else str(row.get("_day", ""))
+        p = get_audio_paths(level, d, int(row["_row_idx"]), str(row["german_word"]))
+        return p["pronounce"], p["slow"], p["spell"]
+
+    results = [_paths(row) for _, row in deck.iterrows()]
+    deck["audio_pronounce_path"] = [r[0] for r in results]
+    deck["audio_slow_path"]      = [r[1] for r in results]
+    deck["audio_spell_path"]     = [r[2] for r in results]
+    return deck
+
+
+def _prewarm_audio(word, level, day, row_idx, sentence=None):
+    """Fire-and-forget: generate and cache audio to disk before user needs it."""
+    def _bg():
+        try:
+            if word:
+                pronounce_word(word, level, day, row_idx)
+                slow_word(word, level, day, row_idx)
+                spell_word(word, level, day, row_idx)
+            if sentence:
+                pronounce_word(sentence)
+        except Exception:
+            pass
+    threading.Thread(target=_bg, daemon=True).start()
+
+
+def _prewarm_deck_cards(deck, level, indices):
+    for i in indices:
+        if 0 <= i < len(deck):
+            row = deck.iloc[i]
+            word = str(row.get("german_word", ""))
+            actual_day = str(row.get("_day", ""))
+            row_idx = int(row.get("_row_idx", 0))
+            example = str(row.get("example_sentence", ""))
+            if example == "nan":
+                example = None
+            if word:
+                _prewarm_audio(word, level, actual_day, row_idx, example)
 
 
 # ══════════════════════════════════════
@@ -711,9 +762,7 @@ def render_home():
                 st.session_state.day = day_name
                 deck = load_vocab(level, day_name)
                 deck = deck.sample(frac=1).reset_index(drop=True)
-                deck["audio_pronounce_path"] = [get_audio_paths(level, day_name, row["_row_idx"], row["german_word"])["pronounce"] for _, row in deck.iterrows()]
-                deck["audio_slow_path"] = [get_audio_paths(level, day_name, row["_row_idx"], row["german_word"])["slow"] for _, row in deck.iterrows()]
-                deck["audio_spell_path"] = [get_audio_paths(level, day_name, row["_row_idx"], row["german_word"])["spell"] for _, row in deck.iterrows()]
+                deck = _compute_audio_paths(deck, level, day_name)
 
                 st.session_state.deck = deck
                 st.session_state.idx = 0
@@ -726,6 +775,7 @@ def render_home():
                 st.session_state.show_image = False
                 st.session_state.screen = "quiz"
                 # image cache keys removed; no-op
+                _prewarm_deck_cards(deck, level, [0, 1])
                 st.rerun()
 
     st.markdown("---")
@@ -744,9 +794,7 @@ def render_home():
             st.session_state.day = "__all__"
             deck = load_all_vocab(level)
             deck = deck.sample(frac=1).reset_index(drop=True)
-            deck["audio_pronounce_path"] = [get_audio_paths(level, str(row["_day"]), row["_row_idx"], row["german_word"])["pronounce"] for _, row in deck.iterrows()]
-            deck["audio_slow_path"] = [get_audio_paths(level, str(row["_day"]), row["_row_idx"], row["german_word"])["slow"] for _, row in deck.iterrows()]
-            deck["audio_spell_path"] = [get_audio_paths(level, str(row["_day"]), row["_row_idx"], row["german_word"])["spell"] for _, row in deck.iterrows()]
+            deck = _compute_audio_paths(deck, level)
 
             st.session_state.deck = deck
             st.session_state.idx = 0
@@ -759,6 +807,7 @@ def render_home():
             st.session_state.show_image = False
             st.session_state.screen = "quiz"
             # image cache keys removed; no-op
+            _prewarm_deck_cards(deck, level, [0, 1])
             st.rerun()
 
 
@@ -773,6 +822,12 @@ def render_quiz():
         st.session_state.screen = "summary"
         st.rerun()
         return
+
+    # Trigger background audio pre-warming for current and upcoming cards
+    prewarm_key = f"prewarmed_{idx}"
+    if prewarm_key not in st.session_state:
+        st.session_state[prewarm_key] = True
+        _prewarm_deck_cards(deck, st.session_state.level, [idx, idx + 1, idx + 2])
 
     row = deck.iloc[idx]
     total = len(deck)
@@ -878,7 +933,10 @@ def render_quiz():
     # Example sentence with hover tooltips + 🔊 icon
     example = str(row.get("example_sentence", ""))
     if example and example != "nan":
-        tooltips = translate_sentence_words(example, exclude_word=word)
+        if "quiz_tooltip_map" not in st.session_state or st.session_state.quiz_tooltip_example != example:
+            st.session_state.quiz_tooltip_map = translate_sentence_words(example, exclude_word=word)
+            st.session_state.quiz_tooltip_example = example
+        tooltips = st.session_state.quiz_tooltip_map
         highlighted_example = _highlight_word_in_sentence(example, word, tooltips=tooltips)
 
         # Sentence audio — generate once, cache in session_state (disk read ~10ms after first gen)
@@ -1581,7 +1639,10 @@ def render_test_running():
     sentence = str(row.get("example_sentence", ""))
 
     # Translate non-quiz words for hover tooltips (cached — only hits dict.cc once per word)
-    tooltips = translate_sentence_words(sentence, exclude_word=word)
+    if "test_tooltip_map" not in st.session_state or st.session_state.test_tooltip_sentence != sentence:
+        st.session_state.test_tooltip_map = translate_sentence_words(sentence, exclude_word=word)
+        st.session_state.test_tooltip_sentence = sentence
+    tooltips = st.session_state.test_tooltip_map
 
     highlighted = _highlight_word_in_sentence(sentence, word, tooltips=tooltips)
 
@@ -2038,6 +2099,77 @@ def render_visuals_tab():
         background: #818cf8;
         transform: scale(1.25);
     }}
+
+    /* Fullscreen Specific Styles */
+    .viewer-container:fullscreen {{
+        background: black !important;
+        width: 100vw !important;
+        height: 100vh !important;
+        padding: 0 !important;
+    }}
+    .viewer-container:fullscreen .top-bar,
+    .viewer-container:fullscreen .dots-container,
+    .viewer-container:fullscreen .nav-arrow {{
+        display: none !important;
+    }}
+    .viewer-container:fullscreen .slide-area {{
+        width: 100% !important;
+        height: 100% !important;
+        flex: 1 !important;
+        min-height: 0 !important;
+        margin-bottom: 0 !important;
+        background: black !important;
+        border: none !important;
+        border-radius: 0 !important;
+    }}
+    .viewer-container:fullscreen .slide-wrapper {{
+        width: 100% !important;
+        height: 100% !important;
+        max-width: 100% !important;
+        max-height: 100% !important;
+    }}
+    .viewer-container:fullscreen .slide-img {{
+        width: 100% !important;
+        height: 100% !important;
+        object-fit: contain !important;
+        border-radius: 0 !important;
+        box-shadow: none !important;
+    }}
+
+    .viewer-container:-webkit-full-screen {{
+        background: black !important;
+        width: 100vw !important;
+        height: 100vh !important;
+        padding: 0 !important;
+    }}
+    .viewer-container:-webkit-full-screen .top-bar,
+    .viewer-container:-webkit-full-screen .dots-container,
+    .viewer-container:-webkit-full-screen .nav-arrow {{
+        display: none !important;
+    }}
+    .viewer-container:-webkit-full-screen .slide-area {{
+        width: 100% !important;
+        height: 100% !important;
+        flex: 1 !important;
+        min-height: 0 !important;
+        margin-bottom: 0 !important;
+        background: black !important;
+        border: none !important;
+        border-radius: 0 !important;
+    }}
+    .viewer-container:-webkit-full-screen .slide-wrapper {{
+        width: 100% !important;
+        height: 100% !important;
+        max-width: 100% !important;
+        max-height: 100% !important;
+    }}
+    .viewer-container:-webkit-full-screen .slide-img {{
+        width: 100% !important;
+        height: 100% !important;
+        object-fit: contain !important;
+        border-radius: 0 !important;
+        box-shadow: none !important;
+    }}
     </style>
     </head>
     <body>
@@ -2049,6 +2181,9 @@ def render_visuals_tab():
             </div>
             <button class="control-btn" id="rotateBtn">
                 <span>🔄 Tilt</span>
+            </button>
+            <button class="control-btn" id="fullscreenBtn">
+                <span>📺 Fullscreen</span>
             </button>
         </div>
         
@@ -2075,7 +2210,9 @@ def render_visuals_tab():
     const prevBtn = document.getElementById('prevBtn');
     const nextBtn = document.getElementById('nextBtn');
     const rotateBtn = document.getElementById('rotateBtn');
+    const fullscreenBtn = document.getElementById('fullscreenBtn');
     const slideArea = document.getElementById('slideArea');
+    const viewer = document.querySelector('.viewer-container');
     
     slides.forEach((slide, idx) => {{
         const opt = document.createElement('option');
@@ -2120,6 +2257,36 @@ def render_visuals_tab():
             slideImg.classList.remove('rotated');
         }}
     }};
+
+    function toggleFullscreen() {{
+        if (!document.fullscreenElement && !document.webkitFullscreenElement) {{
+            if (viewer.requestFullscreen) {{
+                viewer.requestFullscreen();
+            }} else if (viewer.webkitRequestFullscreen) {{
+                viewer.webkitRequestFullscreen();
+            }}
+        }} else {{
+            if (document.exitFullscreen) {{
+                document.exitFullscreen();
+            }} else if (document.webkitExitFullscreen) {{
+                document.webkitExitFullscreen();
+            }}
+        }}
+    }}
+    
+    fullscreenBtn.onclick = toggleFullscreen;
+    
+    function onFullscreenChange() {{
+        const isFS = document.fullscreenElement || document.webkitFullscreenElement;
+        if (isFS) {{
+            fullscreenBtn.querySelector('span').textContent = '🚪 Exit';
+        }} else {{
+            fullscreenBtn.querySelector('span').textContent = '📺 Fullscreen';
+        }}
+    }}
+    
+    document.addEventListener('fullscreenchange', onFullscreenChange);
+    document.addEventListener('webkitfullscreenchange', onFullscreenChange);
     
     window.addEventListener('keydown', (e) => {{
         if (e.key === 'ArrowRight') nextSlide();
@@ -2131,28 +2298,38 @@ def render_visuals_tab():
     let touchEndX = 0;
     let touchEndY = 0;
     
-    slideArea.addEventListener('touchstart', (e) => {{
+    viewer.addEventListener('touchstart', (e) => {{
         touchStartX = e.changedTouches[0].screenX;
         touchStartY = e.changedTouches[0].screenY;
-    }}, false);
+    }}, {{passive: true}});
     
-    slideArea.addEventListener('touchend', (e) => {{
+    viewer.addEventListener('touchend', (e) => {{
         touchEndX = e.changedTouches[0].screenX;
         touchEndY = e.changedTouches[0].screenY;
-        handleSwipe();
-    }}, false);
-    
-    function handleSwipe() {{
+        
         const deltaX = touchEndX - touchStartX;
         const deltaY = touchEndY - touchStartY;
+        
         if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > 50) {{
             if (deltaX < 0) {{
                 nextSlide();
             }} else {{
                 prevSlide();
             }}
+        }} else if (Math.abs(deltaX) < 10 && Math.abs(deltaY) < 10) {{
+            // Tap gesture: toggle fullscreen if tapped on slide/image area (not controls)
+            const isClickOnControls = e.target.closest('.top-bar') || e.target.closest('.dots-container') || e.target.closest('.nav-arrow');
+            if (!isClickOnControls) {{
+                toggleFullscreen();
+            }}
         }}
-    }}
+    }}, {{passive: true}});
+    
+    // Also toggle fullscreen on click (desktop)
+    slideArea.onclick = (e) => {{
+        if (e.target.closest('.nav-arrow')) return;
+        toggleFullscreen();
+    }};
     
     showSlide(0);
     </script>
