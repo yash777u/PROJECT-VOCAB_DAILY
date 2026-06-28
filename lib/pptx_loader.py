@@ -6,20 +6,30 @@ import streamlit as st
 @st.cache_resource(show_spinner=False)
 def get_slide_images():
     """
-    Ensure the PPTX file is converted to slides and return a list of base64 PNG data.
+    Ensure the PPTX file is converted to slides and return a list of static URLs.
     Cached for the lifetime of the server process — slides are re-loaded only on restart.
     """
     pptx_path = os.path.join("data", "German.pptx")
-    cache_dir = os.path.join("data", "slides_cache")
+    cache_dir = os.path.join("static", "slides_cache")
     
     if not os.path.exists(pptx_path):
         return []
         
     os.makedirs(cache_dir, exist_ok=True)
     
+    def get_num(filename):
+        try:
+            # extract number from 'slide-X.png'
+            return int(filename.split("-")[1].split(".")[0])
+        except:
+            return 99999
+            
     # Check if we need to convert
     pptx_mtime = os.path.getmtime(pptx_path)
-    slide_files = sorted([f for f in os.listdir(cache_dir) if f.startswith("slide-") and f.endswith(".png")])
+    slide_files = sorted(
+        [f for f in os.listdir(cache_dir) if f.startswith("slide-") and f.endswith(".png")],
+        key=get_num
+    )
     
     cache_valid = len(slide_files) > 0
     if cache_valid:
@@ -74,20 +84,11 @@ def get_slide_images():
             except:
                 pass
                 
-    slide_paths = sorted([
-        os.path.join(cache_dir, f) 
-        for f in os.listdir(cache_dir) 
-        if f.startswith("slide-") and f.endswith(".png")
-    ])
+        slide_files = sorted(
+            [f for f in os.listdir(cache_dir) if f.startswith("slide-") and f.endswith(".png")],
+            key=get_num
+        )
     
-    # Read files and convert to base64
-    slides_b64 = []
-    for path in slide_paths:
-        try:
-            with open(path, "rb") as image_file:
-                encoded_string = base64.b64encode(image_file.read()).decode("utf-8")
-                slides_b64.append(f"data:image/png;base64,{encoded_string}")
-        except Exception as e:
-            print(f"Error encoding {path}: {e}")
-            
-    return slides_b64
+    # Return browser-accessible URLs
+    slide_urls = [f"/app/static/slides_cache/{f}" for f in slide_files]
+    return slide_urls
