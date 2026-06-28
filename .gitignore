@@ -3,6 +3,8 @@ clone-Nodejs/
 
 # Ignore Streamlit local config and runtime files
 .streamlit/
+.DeutschFlash_Fast_Stack/
+.DeutschFlash_Personal_Deploy/
 
 # Node artifacts
 node_modules/
