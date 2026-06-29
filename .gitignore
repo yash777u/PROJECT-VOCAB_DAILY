@@ -2,8 +2,7 @@
 clone-Nodejs/
 
 # Ignore Streamlit local config and runtime files
-.streamlit/secrets.toml
-.streamlit/secrets_*.toml
+.streamlit/
 .DeutschFlash_Fast_Stack/
 .DeutschFlash_Personal_Deploy/
 

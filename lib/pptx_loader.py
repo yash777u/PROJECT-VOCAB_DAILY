@@ -6,11 +6,11 @@ import streamlit as st
 @st.cache_resource(show_spinner=False)
 def get_slide_images():
     """
-    Ensure the PPTX file is converted to slides and return a list of static URLs.
+    Ensure the PPTX file is converted to slides and return a list of base64 PNG data.
     Cached for the lifetime of the server process — slides are re-loaded only on restart.
     """
     pptx_path = os.path.join("data", "German.pptx")
-    cache_dir = os.path.join("static", "slides_cache")
+    cache_dir = os.path.join("data", "slides_cache")
     
     if not os.path.exists(pptx_path):
         return []
@@ -89,6 +89,15 @@ def get_slide_images():
             key=get_num
         )
     
-    # Return browser-accessible URLs
-    slide_urls = [f"/app/static/slides_cache/{f}" for f in slide_files]
-    return slide_urls
+    # Read files and convert to base64
+    slides_b64 = []
+    for f in slide_files:
+        path = os.path.join(cache_dir, f)
+        try:
+            with open(path, "rb") as image_file:
+                encoded_string = base64.b64encode(image_file.read()).decode("utf-8")
+                slides_b64.append(f"data:image/png;base64,{encoded_string}")
+        except Exception as e:
+            print(f"Error encoding {path}: {e}")
+            
+    return slides_b64

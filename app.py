@@ -2231,28 +2231,6 @@ def render_visuals_tab():
         dotsContainer.appendChild(dot);
     }});
     
-    const preloadedImages = new Map();
-    
-    function updatePreloads(currentIdx) {{
-        const start = Math.max(0, currentIdx - 4);
-        const end = Math.min(slides.length - 1, currentIdx + 5);
-        
-        for (const [idx, img] of preloadedImages.entries()) {{
-            if (idx < start || idx > end) {{
-                img.src = '';
-                preloadedImages.delete(idx);
-            }}
-        }}
-        
-        for (let i = start; i <= end; i++) {{
-            if (!preloadedImages.has(i)) {{
-                const img = new Image();
-                img.src = slides[i];
-                preloadedImages.set(i, img);
-            }}
-        }}
-    }}
-    
     function showSlide(idx) {{
         if (idx < 0 || idx >= slides.length) return;
         currentIdx = idx;
@@ -2263,8 +2241,6 @@ def render_visuals_tab():
         dots.forEach((dot, dIdx) => {{
             dot.className = `dot ${{dIdx === currentIdx ? 'active' : ''}}`;
         }});
-        
-        updatePreloads(currentIdx);
     }}
     
     function nextSlide() {{
