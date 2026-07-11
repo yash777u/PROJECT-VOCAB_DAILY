@@ -147,92 +147,61 @@ def _pngs_to_webp(png_paths: list) -> list:
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
-
 @st.cache_resource(show_spinner=False)
 def get_slide_images() -> list:
     """
-    Prepare optimised WebP slides and return a list of static URL strings.
+    Return a list of static URL strings for the optimised WebP slides.
 
-    LOCAL mode  (.local_dev present)
-    ─────────────────────────────────
-    • Always wipes both caches (data/slides_cache + static/slides) on startup.
-    • Re-converts the PPTX from scratch so a freshly placed file is always
-      reflected without any manual cache clearing.
+    Strategy (same for local and deployment):
+    ─────────────────────────────────────────
+    1. If WebP files already exist in static/slides/ → return their URLs
+       immediately.  No conversion, no wait, lightning-fast every time.
 
-    DEPLOYMENT mode (.local_dev absent)
-    ─────────────────────────────────────
-    • Uses existing WebP files if they are newer than the PPTX.
-    • Only re-converts if the PPTX has been updated or WebPs are missing.
+    2. If static/slides/ is empty → run the full pipeline once:
+         PPTX → PDF → PNG (intermediate) → WebP → delete PNGs
+       After that, step 1 applies on every subsequent startup.
 
-    Returns URLs like /app/static/slides/slide-01.webp (one per slide).
+    To force a fresh rebuild (e.g. after placing a new PPTX):
+       • Delete the  static/slides/  folder and restart.
+       • On a local machine with .local_dev present a helper message is shown.
+
     Cached for the lifetime of the server process.
     """
     if not os.path.exists(PPTX_PATH):
         return []
 
     os.makedirs(STATIC_DIR, exist_ok=True)
+
+    # ── Step 1: check for existing WebPs ─────────────────────────────────────
+    existing_webp = sorted(
+        [f for f in os.listdir(STATIC_DIR)
+         if f.startswith("slide-") and f.endswith(".webp")
+         and os.path.getsize(os.path.join(STATIC_DIR, f)) > 0],
+        key=_get_num,
+    )
+
+    if existing_webp:
+        # Already built — return URLs instantly
+        if _is_local():
+            print(f"[pptx_loader] {len(existing_webp)} WebP slides cached — loaded instantly.")
+            print("[pptx_loader] To refresh: delete the  static/slides/  folder and restart.")
+        return [f"/app/static/slides/{f}" for f in existing_webp]
+
+    # ── Step 2: first run / empty folder — generate everything ───────────────
+    print("[pptx_loader] static/slides/ is empty — generating WebP slides from PPTX…")
     os.makedirs(CACHE_DIR, exist_ok=True)
+    _wipe_dir(CACHE_DIR)
 
-    local = _is_local()
-
-    if local:
-        # ── LOCAL: always regenerate everything ──────────────────────────
-        print("[pptx_loader] LOCAL mode — wiping caches and regenerating slides…")
-        _wipe_dir(CACHE_DIR)
-        _wipe_dir(STATIC_DIR)
-        png_paths = _convert_pptx_to_pngs()
-        webp_paths = _pngs_to_webp(png_paths)
-
-    else:
-        # ── DEPLOYMENT: use cached WebPs when still valid ────────────────
-        pptx_mtime = os.path.getmtime(PPTX_PATH)
-
-        existing_webp = sorted(
-            [f for f in os.listdir(STATIC_DIR)
-             if f.startswith("slide-") and f.endswith(".webp")],
-            key=_get_num,
-        )
-        cache_valid = (
-            len(existing_webp) > 0
-            and all(
-                os.path.getmtime(os.path.join(STATIC_DIR, f)) >= pptx_mtime
-                and os.path.getsize(os.path.join(STATIC_DIR, f)) > 0
-                for f in existing_webp
-            )
-        )
-
-        if cache_valid:
-            return [f"/app/static/slides/{f}" for f in existing_webp]
-
-        # WebPs stale / missing — check PNG cache before calling LibreOffice
-        existing_pngs = sorted(
-            [f for f in os.listdir(CACHE_DIR)
-             if f.startswith("slide-") and f.endswith(".png")],
-            key=_get_num,
-        ) if os.path.exists(CACHE_DIR) else []
-
-        png_cache_valid = (
-            len(existing_pngs) > 0
-            and all(
-                os.path.getmtime(os.path.join(CACHE_DIR, f)) >= pptx_mtime
-                and os.path.getsize(os.path.join(CACHE_DIR, f)) > 0
-                for f in existing_pngs
-            )
-        )
-
-        if png_cache_valid:
-            png_paths = [os.path.join(CACHE_DIR, f) for f in existing_pngs]
-        else:
-            _wipe_dir(CACHE_DIR)
-            png_paths = _convert_pptx_to_pngs()
-
-        _wipe_dir(STATIC_DIR)
-        webp_paths = _pngs_to_webp(png_paths)
+    png_paths  = _convert_pptx_to_pngs()   # PPTX → PDF → PNG  (intermediate)
+    webp_paths = _pngs_to_webp(png_paths)   # PNG  → WebP       (final served files)
+    _wipe_dir(CACHE_DIR)                    # delete intermediate PNGs
 
     if not webp_paths:
         return []
 
+    print(f"[pptx_loader] Done — {len(webp_paths)} WebP slides ready.")
     return [
         f"/app/static/slides/{os.path.basename(p)}"
         for p in sorted(webp_paths, key=lambda p: _get_num(os.path.basename(p)))
     ]
+
