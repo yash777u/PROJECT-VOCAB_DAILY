@@ -5,26 +5,19 @@ Converts German.pptx → optimised WebP images served as static URLs.
 Returns lightweight URL strings instead of base64 blobs so the browser
 can load and cache each slide on demand (dramatically faster on mobile).
 
-LOCAL vs DEPLOYMENT detection
-───────────────────────────────
-A `.local_dev` marker file in the project root signals a local machine.
-When that file is present every startup wipes both caches and regenerates
-all slides fresh — so dropping a new PPTX is always reflected immediately.
-In deployment (no `.local_dev`) the existing WebP files are reused until
-they are older than the PPTX, keeping startup fast.
-
 Static serving must be enabled in .streamlit/config.toml:
     [server]
     enableStaticServing = true
 
-Slides are served at: /app/static/slides/slide-XX.webp
+Slides are served at: app/static/slides/slide-XX.webp
+(relative URL — works on local dev and Streamlit Cloud under any subpath)
 """
 import os
 import subprocess
 import streamlit as st
 
 # ── Paths ────────────────────────────────────────────────────────────────────
-STATIC_DIR   = os.path.join("static", "slides")   # served as /app/static/slides/
+STATIC_DIR   = os.path.join("static", "slides")   # served as app/static/slides/
 PPTX_PATH    = os.path.join("data", "German.pptx")
 CACHE_DIR    = os.path.join("data", "slides_cache")  # intermediate PNGs from pdftoppm
 LOCAL_MARKER = ".local_dev"                           # gitignored; exists only on laptop
@@ -32,6 +25,24 @@ LOCAL_MARKER = ".local_dev"                           # gitignored; exists only 
 # ── Quality settings ─────────────────────────────────────────────────────────
 WEBP_QUALITY = 78   # ~170 KB/slide — good quality, loads fast on mobile
 WEBP_MAX_W   = 1280 # px — enough for any phone / tablet
+
+
+def _static_url(filename: str) -> str:
+    """
+    Build the correct static file URL for Streamlit's built-in file server.
+
+    Streamlit serves ./static/ at <baseUrlPath>/app/static/.
+    Using NO leading slash (relative URL) makes it work on:
+      • Local dev:         http://localhost:8501/app/static/slides/slide-01.webp
+      • Streamlit Cloud:   https://xxx.streamlit.app/app/static/slides/slide-01.webp
+    regardless of any deploy subpath.
+    """
+    try:
+        base = (st.get_option("server.baseUrlPath") or "").strip("/")
+    except Exception:
+        base = ""
+    prefix = f"{base}/app/static/slides" if base else "app/static/slides"
+    return f"{prefix}/{filename}"
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -112,7 +123,6 @@ def _convert_pptx_to_pngs() -> list:
 def _pngs_to_webp(png_paths: list) -> list:
     """
     Convert a list of PNG paths → WebP files in STATIC_DIR.
-    Skips files that already exist and are newer than their source PNG.
     Returns a sorted list of output WebP paths.
     """
     try:
@@ -128,7 +138,6 @@ def _pngs_to_webp(png_paths: list) -> list:
         name = os.path.basename(png_path).replace(".png", ".webp")
         out  = os.path.join(STATIC_DIR, name)
 
-        # Regenerate if missing or source PNG is newer
         if not os.path.exists(out) or os.path.getmtime(out) < os.path.getmtime(png_path):
             try:
                 img = Image.open(png_path)
@@ -147,25 +156,25 @@ def _pngs_to_webp(png_paths: list) -> list:
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
+
 @st.cache_resource(show_spinner=False)
 def get_slide_images() -> list:
     """
     Return a list of static URL strings for the optimised WebP slides.
 
-    Strategy (same for local and deployment):
-    ─────────────────────────────────────────
+    Strategy:
+    ─────────
     1. If WebP files already exist in static/slides/ → return their URLs
-       immediately.  No conversion, no wait, lightning-fast every time.
+       immediately. No conversion, no wait, lightning-fast every time.
 
     2. If static/slides/ is empty → run the full pipeline once:
          PPTX → PDF → PNG (intermediate) → WebP → delete PNGs
        After that, step 1 applies on every subsequent startup.
 
-    To force a fresh rebuild (e.g. after placing a new PPTX):
-       • Delete the  static/slides/  folder and restart.
-       • On a local machine with .local_dev present a helper message is shown.
+    To force a fresh rebuild: delete the static/slides/ folder and restart.
 
-    Cached for the lifetime of the server process.
+    URLs are relative (no leading slash) so they work on both local dev
+    and Streamlit Cloud under any deploy subpath.
     """
     if not os.path.exists(PPTX_PATH):
         return []
@@ -181,11 +190,10 @@ def get_slide_images() -> list:
     )
 
     if existing_webp:
-        # Already built — return URLs instantly
         if _is_local():
             print(f"[pptx_loader] {len(existing_webp)} WebP slides cached — loaded instantly.")
             print("[pptx_loader] To refresh: delete the  static/slides/  folder and restart.")
-        return [f"/app/static/slides/{f}" for f in existing_webp]
+        return [_static_url(f) for f in existing_webp]
 
     # ── Step 2: first run / empty folder — generate everything ───────────────
     print("[pptx_loader] static/slides/ is empty — generating WebP slides from PPTX…")
@@ -201,7 +209,6 @@ def get_slide_images() -> list:
 
     print(f"[pptx_loader] Done — {len(webp_paths)} WebP slides ready.")
     return [
-        f"/app/static/slides/{os.path.basename(p)}"
+        _static_url(os.path.basename(p))
         for p in sorted(webp_paths, key=lambda p: _get_num(os.path.basename(p)))
     ]
-
