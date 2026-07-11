@@ -176,9 +176,6 @@ def get_slide_images() -> list:
     URLs are relative (no leading slash) so they work on both local dev
     and Streamlit Cloud under any deploy subpath.
     """
-    if not os.path.exists(PPTX_PATH):
-        return []
-
     os.makedirs(STATIC_DIR, exist_ok=True)
 
     # ── Step 1: check for existing WebPs ─────────────────────────────────────
@@ -194,6 +191,10 @@ def get_slide_images() -> list:
             print(f"[pptx_loader] {len(existing_webp)} WebP slides cached — loaded instantly.")
             print("[pptx_loader] To refresh: delete the  static/slides/  folder and restart.")
         return [_static_url(f) for f in existing_webp]
+
+    # ── Step 2: first run / empty folder — check PPTX presence ───────────────
+    if not os.path.exists(PPTX_PATH):
+        return []
 
     # ── Step 2: first run / empty folder — generate everything ───────────────
     print("[pptx_loader] static/slides/ is empty — generating WebP slides from PPTX…")

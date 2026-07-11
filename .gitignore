@@ -11,6 +11,7 @@ clone-Nodejs/
 # Generated slide assets — committed so deployment has them without needing LibreOffice
 # Only the intermediate PNG cache is ignored (it's always temporary)
 data/slides_cache/
+data/German.pptx
 
 # Local-only dev marker — NEVER commit; its absence = deployment
 .local_dev
