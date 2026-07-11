@@ -1893,7 +1893,7 @@ def render_test_tab():
 def render_visuals_tab():
     import json
     from lib.pptx_loader import get_slide_images
-    
+
     st.markdown(
         '<h2 style="text-align:center;font-weight:800;font-size:1.8rem;color:#f1f5f9;margin-bottom:0.25rem">🖼️ Learn by Visuals</h2>',
         unsafe_allow_html=True,
@@ -1902,10 +1902,10 @@ def render_visuals_tab():
         '<p style="text-align:center;color:#94a3b8;font-size:0.875rem;margin-bottom:1.5rem">Study slides, swipe left/right, and select slides directly</p>',
         unsafe_allow_html=True,
     )
-    
-    with st.spinner("Loading visual slides..."):
+
+    with st.spinner("Preparing slides…"):
         slides = get_slide_images()
-        
+
     if not slides:
         st.markdown(
             '<div class="search-empty">Please place <code>German.pptx</code> in the <code>data/</code> folder to start visual learning.</div>',
@@ -1913,479 +1913,439 @@ def render_visuals_tab():
         )
         return
 
-    # Embed the custom slide viewer component
     slides_json = json.dumps(slides)
-    
-    html_code = f"""
-    <!DOCTYPE html>
-    <html>
-    <head>
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <style>
-    * {{ box-sizing: border-box; margin: 0; padding: 0; }}
-    body {{
-        background: transparent;
-        color: #f8fafc;
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-        overflow: hidden;
-        height: 520px;
-        display: flex;
-        flex-direction: column;
-    }}
-    .viewer-container {{
-        flex: 1;
-        display: flex;
-        flex-direction: column;
-        position: relative;
-        width: 100%;
-        height: 100%;
-        align-items: center;
-        justify-content: center;
-    }}
-    /* Top Controls Header */
-    .top-bar {{
-        width: 100%;
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        padding: 8px 12px;
-        background: rgba(15, 23, 42, 0.45);
-        backdrop-filter: blur(12px);
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        border-radius: 12px;
-        z-index: 10;
-        gap: 10px;
-        margin-bottom: 12px;
-    }}
-    .select-wrapper {{
-        position: relative;
-        flex: 1;
-    }}
-    select.slide-select {{
-        width: 100%;
-        padding: 8px 30px 8px 12px;
-        border-radius: 8px;
-        background: rgba(30, 41, 59, 0.7);
-        color: #f8fafc;
-        border: 1px solid rgba(255, 255, 255, 0.15);
-        font-size: 0.9rem;
-        font-weight: 500;
-        outline: none;
-        cursor: pointer;
-        appearance: none;
-        -webkit-appearance: none;
-    }}
-    .select-wrapper::after {{
-        content: "▼";
-        position: absolute;
-        right: 12px;
-        top: 50%;
-        transform: translateY(-50%);
-        color: #94a3b8;
-        font-size: 0.75rem;
-        pointer-events: none;
-    }}
-    button.control-btn {{
-        padding: 8px 12px;
-        border-radius: 8px;
-        background: rgba(30, 41, 59, 0.7);
-        color: #f8fafc;
-        border: 1px solid rgba(255, 255, 255, 0.15);
-        cursor: pointer;
-        font-size: 0.9rem;
-        font-weight: 500;
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        transition: all 0.2s ease;
-    }}
-    button.control-btn:hover {{
-        background: rgba(51, 65, 85, 0.9);
-        border-color: rgba(255, 255, 255, 0.3);
-    }}
-    
-    /* Slide Area */
-    .slide-area {{
-        flex: 1;
-        width: 100%;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        position: relative;
-        overflow: hidden;
-        touch-action: none;
-        background: rgba(15, 23, 42, 0.3);
-        border: 1px solid rgba(255, 255, 255, 0.05);
-        border-radius: 16px;
-        min-height: 380px;
-    }}
-    .slide-wrapper {{
-        position: relative;
-        max-width: 95%;
-        max-height: 90%;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    }}
-    .slide-img {{
-        max-width: 100%;
-        max-height: 360px;
-        object-fit: contain;
-        border-radius: 8px;
-        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
-        user-select: none;
-        pointer-events: none;
-        transition: transform 0.3s ease;
-    }}
-    
-    /* Rotating class */
-    .rotated {{
-        transform: rotate(90deg) scale(0.7);
-    }}
-    
-    /* Desktop Arrow Buttons */
-    .nav-arrow {{
-        position: absolute;
-        top: 50%;
-        transform: translateY(-50%);
-        width: 40px;
-        height: 40px;
-        border-radius: 50%;
-        background: rgba(15, 23, 42, 0.6);
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        color: #f8fafc;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        cursor: pointer;
-        font-size: 1.1rem;
-        z-index: 5;
-        transition: all 0.2s ease;
-        user-select: none;
-    }}
-    .nav-arrow:hover {{
-        background: rgba(30, 41, 59, 0.85);
-        border-color: rgba(255, 255, 255, 0.3);
-        transform: translateY(-50%) scale(1.05);
-    }}
-    .nav-arrow.left-arrow {{ left: 10px; }}
-    .nav-arrow.right-arrow {{ right: 10px; }}
-    
-    /* Hide arrows on mobile */
-    @media (max-width: 768px) {{
-        .nav-arrow {{
-            display: none !important;
-        }}
-    }}
-    
-    /* Pagination indicator dots */
-    .dots-container {{
-        display: flex;
-        gap: 6px;
-        justify-content: center;
-        padding-top: 12px;
-        z-index: 2;
-    }}
-    .dot {{
-        width: 8px;
-        height: 8px;
-        border-radius: 50%;
-        background: rgba(255, 255, 255, 0.2);
-        cursor: pointer;
-        transition: all 0.2s ease;
-    }}
-    .dot.active {{
-        background: #818cf8;
-        transform: scale(1.25);
-    }}
 
-    /* Fullscreen Specific Styles */
-    .viewer-container:fullscreen {{
-        background: black !important;
-        width: 100vw !important;
-        height: 100vh !important;
-        padding: 0 !important;
-    }}
-    .viewer-container:fullscreen .top-bar,
-    .viewer-container:fullscreen .dots-container,
-    .viewer-container:fullscreen .nav-arrow {{
-        display: none !important;
-    }}
-    .viewer-container:fullscreen .slide-area {{
-        width: 100% !important;
-        height: 100% !important;
-        flex: 1 !important;
-        min-height: 0 !important;
-        margin-bottom: 0 !important;
-        background: black !important;
-        border: none !important;
-        border-radius: 0 !important;
-    }}
-    .viewer-container:fullscreen .slide-wrapper {{
-        width: 100% !important;
-        height: 100% !important;
-        max-width: 100% !important;
-        max-height: 100% !important;
-    }}
-    .viewer-container:fullscreen .slide-img {{
-        width: 100% !important;
-        height: 100% !important;
-        max-width: none !important;
-        max-height: none !important;
-        object-fit: fill; /* Default to fill so it occupies the entire screen space */
-        border-radius: 0 !important;
-        box-shadow: none !important;
-    }}
-
-    .viewer-container:-webkit-full-screen {{
-        background: black !important;
-        width: 100vw !important;
-        height: 100vh !important;
-        padding: 0 !important;
-    }}
-    .viewer-container:-webkit-full-screen .top-bar,
-    .viewer-container:-webkit-full-screen .dots-container,
-    .viewer-container:-webkit-full-screen .nav-arrow {{
-        display: none !important;
-    }}
-    .viewer-container:-webkit-full-screen .slide-area {{
-        width: 100% !important;
-        height: 100% !important;
-        flex: 1 !important;
-        min-height: 0 !important;
-        margin-bottom: 0 !important;
-        background: black !important;
-        border: none !important;
-        border-radius: 0 !important;
-    }}
-    .viewer-container:-webkit-full-screen .slide-wrapper {{
-        width: 100% !important;
-        height: 100% !important;
-        max-width: 100% !important;
-        max-height: 100% !important;
-    }}
-    .viewer-container:-webkit-full-screen .slide-img {{
-        width: 100% !important;
-        height: 100% !important;
-        max-width: none !important;
-        max-height: none !important;
-        object-fit: fill; /* Default to fill so it occupies the entire screen space */
-        border-radius: 0 !important;
-        box-shadow: none !important;
-    }}
-    </style>
-    </head>
-    <body>
-    <div class="viewer-container">
-        <div class="top-bar">
-            <div class="select-wrapper">
-                <select class="slide-select" id="slideSelect">
-                </select>
-            </div>
-            <button class="control-btn" id="rotateBtn">
-                <span>🔄 Tilt</span>
-            </button>
-            <button class="control-btn" id="fullscreenBtn">
-                <span>📺 Fullscreen</span>
-            </button>
+    html_code = f"""<!DOCTYPE html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+* {{ box-sizing: border-box; margin: 0; padding: 0; }}
+body {{
+    background: transparent;
+    color: #f8fafc;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    overflow: hidden;
+    height: 520px;
+    display: flex;
+    flex-direction: column;
+}}
+.viewer-container {{
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    width: 100%;
+    height: 100%;
+    align-items: center;
+    justify-content: center;
+}}
+.top-bar {{
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    background: rgba(15,23,42,0.45);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 12px;
+    z-index: 10;
+    gap: 10px;
+    margin-bottom: 12px;
+}}
+.select-wrapper {{ position: relative; flex: 1; }}
+select.slide-select {{
+    width: 100%;
+    padding: 8px 30px 8px 12px;
+    border-radius: 8px;
+    background: rgba(30,41,59,0.7);
+    color: #f8fafc;
+    border: 1px solid rgba(255,255,255,0.15);
+    font-size: 0.9rem;
+    font-weight: 500;
+    outline: none;
+    cursor: pointer;
+    appearance: none;
+    -webkit-appearance: none;
+}}
+.select-wrapper::after {{
+    content: "▼";
+    position: absolute;
+    right: 12px; top: 50%;
+    transform: translateY(-50%);
+    color: #94a3b8;
+    font-size: 0.75rem;
+    pointer-events: none;
+}}
+button.control-btn {{
+    padding: 8px 12px;
+    border-radius: 8px;
+    background: rgba(30,41,59,0.7);
+    color: #f8fafc;
+    border: 1px solid rgba(255,255,255,0.15);
+    cursor: pointer;
+    font-size: 0.9rem;
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    transition: all 0.2s ease;
+}}
+button.control-btn:hover {{
+    background: rgba(51,65,85,0.9);
+    border-color: rgba(255,255,255,0.3);
+}}
+.slide-area {{
+    flex: 1;
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    overflow: hidden;
+    touch-action: none;
+    background: rgba(15,23,42,0.3);
+    border: 1px solid rgba(255,255,255,0.05);
+    border-radius: 16px;
+    min-height: 380px;
+}}
+/* Skeleton loader */
+.skeleton {{
+    width: 90%; height: 80%;
+    border-radius: 8px;
+    background: linear-gradient(90deg,rgba(30,41,59,0.4) 25%,rgba(51,65,85,0.5) 50%,rgba(30,41,59,0.4) 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.2s infinite;
+    display: none;
+}}
+@keyframes shimmer {{ 0%{{background-position:200% 0}} 100%{{background-position:-200% 0}} }}
+.slide-wrapper {{
+    position: relative;
+    max-width: 95%; max-height: 90%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: transform 0.3s cubic-bezier(0.4,0,0.2,1);
+}}
+.slide-img {{
+    max-width: 100%;
+    max-height: 360px;
+    object-fit: contain;
+    border-radius: 8px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+    user-select: none;
+    pointer-events: none;
+    transition: opacity 0.25s ease;
+}}
+.rotated {{ transform: rotate(90deg) scale(0.7); }}
+.nav-arrow {{
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 40px; height: 40px;
+    border-radius: 50%;
+    background: rgba(15,23,42,0.6);
+    border: 1px solid rgba(255,255,255,0.1);
+    color: #f8fafc;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    font-size: 1.1rem;
+    z-index: 5;
+    transition: all 0.2s ease;
+    user-select: none;
+}}
+.nav-arrow:hover {{
+    background: rgba(30,41,59,0.85);
+    border-color: rgba(255,255,255,0.3);
+    transform: translateY(-50%) scale(1.05);
+}}
+.nav-arrow.left-arrow {{ left: 10px; }}
+.nav-arrow.right-arrow {{ right: 10px; }}
+@media (max-width: 768px) {{ .nav-arrow {{ display: none !important; }} }}
+.dots-container {{
+    display: flex;
+    gap: 6px;
+    justify-content: center;
+    padding-top: 12px;
+    z-index: 2;
+}}
+.dot {{
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.2);
+    cursor: pointer;
+    transition: all 0.2s ease;
+}}
+.dot.active {{ background: #818cf8; transform: scale(1.25); }}
+/* ── Fullscreen styles ──────────────────────────────────────────────────
+   viewer.requestFullscreen() makes .viewer-container the :fullscreen element.
+   We also apply inline styles via JS in onFSChange() as a bulletproof fallback
+   because body has a fixed 520px height that CSS alone cannot reliably override.
+──────────────────────────────────────────────────────────────────────── */
+.viewer-container:fullscreen,
+.viewer-container:-webkit-full-screen {{
+    width: 100vw !important;
+    height: 100vh !important;
+    background: black !important;
+    padding: 0 !important;
+    flex-direction: column !important;
+    display: flex !important;
+}}
+.viewer-container:fullscreen .top-bar,
+.viewer-container:fullscreen .dots-container,
+.viewer-container:fullscreen .nav-arrow,
+.viewer-container:-webkit-full-screen .top-bar,
+.viewer-container:-webkit-full-screen .dots-container,
+.viewer-container:-webkit-full-screen .nav-arrow,
+body.is-fullscreen .top-bar,
+body.is-fullscreen .dots-container,
+body.is-fullscreen .nav-arrow {{ display: none !important; }}
+.viewer-container:fullscreen .slide-area,
+.viewer-container:-webkit-full-screen .slide-area,
+body.is-fullscreen .slide-area {{
+    width: 100vw !important;
+    height: 100vh !important;
+    flex: 1 !important;
+    min-height: 0 !important;
+    background: black !important;
+    border: none !important;
+    border-radius: 0 !important;
+}}
+.viewer-container:fullscreen .slide-wrapper,
+.viewer-container:-webkit-full-screen .slide-wrapper,
+body.is-fullscreen .slide-wrapper {{
+    width: 100vw !important;
+    height: 100vh !important;
+    max-width: 100vw !important;
+    max-height: 100vh !important;
+}}
+.viewer-container:fullscreen .slide-img,
+.viewer-container:-webkit-full-screen .slide-img,
+body.is-fullscreen .slide-img {{
+    width: 100vw !important;
+    height: 100vh !important;
+    max-width: 100vw !important;
+    max-height: 100vh !important;
+    object-fit: contain !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+}}
+#toast {{
+    position: absolute; bottom: 80px;
+    background: rgba(15,23,42,0.85);
+    border: 1px solid rgba(255,255,255,0.15);
+    color: #f8fafc;
+    padding: 10px 20px;
+    border-radius: 99px;
+    font-size: 0.9rem; font-weight: 600;
+    opacity: 0;
+    transition: opacity 0.2s ease, transform 0.2s ease;
+    transform: translateY(10px);
+    pointer-events: none;
+    z-index: 100;
+}}
+</style>
+</head>
+<body>
+<div class="viewer-container">
+    <div class="top-bar">
+        <div class="select-wrapper">
+            <select class="slide-select" id="slideSelect"></select>
         </div>
-        
-        <div class="slide-area" id="slideArea">
-            <div class="nav-arrow left-arrow" id="prevBtn">❮</div>
-            <div class="slide-wrapper" id="slideWrapper">
-                <img class="slide-img" id="slideImg" src="" alt="Slide">
-            </div>
-            <div class="nav-arrow right-arrow" id="nextBtn">❯</div>
-        </div>
-        
-        <div class="dots-container" id="dotsContainer"></div>
-        <div id="toast" style="position: absolute; bottom: 80px; background: rgba(15, 23, 42, 0.85); border: 1px solid rgba(255,255,255,0.15); color: #f8fafc; padding: 10px 20px; border-radius: 99px; font-size: 0.9rem; font-weight: 600; opacity: 0; transition: opacity 0.2s ease, transform 0.2s ease; transform: translateY(10px); pointer-events: none; z-index: 100;"></div>
+        <button class="control-btn" id="rotateBtn"><span>🔄 Tilt</span></button>
+        <button class="control-btn" id="fullscreenBtn"><span>📺 Fullscreen</span></button>
     </div>
-    
-    <script>
-    const slides = {slides_json};
-    let currentIdx = 0;
-    let isRotated = false;
-    
-    const slideImg = document.getElementById('slideImg');
-    const slideWrapper = document.getElementById('slideWrapper');
-    const slideSelect = document.getElementById('slideSelect');
-    const dotsContainer = document.getElementById('dotsContainer');
-    const prevBtn = document.getElementById('prevBtn');
-    const nextBtn = document.getElementById('nextBtn');
-    const rotateBtn = document.getElementById('rotateBtn');
-    const fullscreenBtn = document.getElementById('fullscreenBtn');
-    const slideArea = document.getElementById('slideArea');
-    const viewer = document.querySelector('.viewer-container');
-    
-    slides.forEach((slide, idx) => {{
-        const opt = document.createElement('option');
-        opt.value = idx;
-        opt.textContent = `Slide ${{idx + 1}} of ${{slides.length}}`;
-        slideSelect.appendChild(opt);
-        
-        const dot = document.createElement('div');
-        dot.className = `dot ${{idx === 0 ? 'active' : ''}}`;
-        dot.onclick = () => showSlide(idx);
-        dotsContainer.appendChild(dot);
-    }});
-    
-    function showSlide(idx) {{
-        if (idx < 0 || idx >= slides.length) return;
-        currentIdx = idx;
-        slideImg.src = slides[currentIdx];
-        slideSelect.value = currentIdx;
-        
-        const dots = dotsContainer.querySelectorAll('.dot');
-        dots.forEach((dot, dIdx) => {{
-            dot.className = `dot ${{dIdx === currentIdx ? 'active' : ''}}`;
-        }});
-    }}
-    
-    function nextSlide() {{
-        if (currentIdx < slides.length - 1) showSlide(currentIdx + 1);
-    }}
-    function prevSlide() {{
-        if (currentIdx > 0) showSlide(currentIdx - 1);
-    }}
-    
-    prevBtn.onclick = prevSlide;
-    nextBtn.onclick = nextSlide;
-    slideSelect.onchange = (e) => showSlide(parseInt(e.target.value));
-    
-    rotateBtn.onclick = () => {{
-        isRotated = !isRotated;
-        if (isRotated) {{
-            slideImg.classList.add('rotated');
-        }} else {{
-            slideImg.classList.remove('rotated');
-        }}
-    }};
+    <div class="slide-area" id="slideArea">
+        <div class="nav-arrow left-arrow" id="prevBtn">❮</div>
+        <div class="skeleton" id="skeleton"></div>
+        <div class="slide-wrapper" id="slideWrapper">
+            <img class="slide-img" id="slideImg" src="" alt="Slide" loading="eager">
+        </div>
+        <div class="nav-arrow right-arrow" id="nextBtn">❯</div>
+    </div>
+    <div class="dots-container" id="dotsContainer"></div>
+    <div id="toast"></div>
+</div>
 
-    function toggleFullscreen() {{
-        if (!document.fullscreenElement && !document.webkitFullscreenElement) {{
-            if (viewer.requestFullscreen) {{
-                viewer.requestFullscreen();
-            }} else if (viewer.webkitRequestFullscreen) {{
-                viewer.webkitRequestFullscreen();
-            }}
-        }} else {{
-            if (document.exitFullscreen) {{
-                document.exitFullscreen();
-            }} else if (document.webkitExitFullscreen) {{
-                document.webkitExitFullscreen();
-            }}
-        }}
-    }}
-    
-    fullscreenBtn.onclick = toggleFullscreen;
-    
-    function onFullscreenChange() {{
-        const isFS = document.fullscreenElement || document.webkitFullscreenElement;
-        if (isFS) {{
-            fullscreenBtn.querySelector('span').textContent = '🚪 Exit';
-        }} else {{
-            fullscreenBtn.querySelector('span').textContent = '📺 Fullscreen';
-        }}
-    }}
-    
-    document.addEventListener('fullscreenchange', onFullscreenChange);
-    document.addEventListener('webkitfullscreenchange', onFullscreenChange);
-    
-    window.addEventListener('keydown', (e) => {{
-        if (e.key === 'ArrowRight') nextSlide();
-        if (e.key === 'ArrowLeft') prevSlide();
-    }});
-    
-    const fitModes = ['fill', 'cover', 'contain'];
-    let fitIdx = 0;
-    const toast = document.getElementById('toast');
-    
-    function showToast(text) {{
-        toast.textContent = text;
-        toast.style.opacity = '1';
-        toast.style.transform = 'translateY(0)';
-        setTimeout(() => {{
-            toast.style.opacity = '0';
-            toast.style.transform = 'translateY(10px)';
-        }}, 1200);
-    }}
-    
-    function cycleFitMode() {{
-        fitIdx = (fitIdx + 1) % fitModes.length;
-        const mode = fitModes[fitIdx];
-        slideImg.style.setProperty('object-fit', mode, 'important');
-        showToast(`Fit: ${{mode.toUpperCase()}}`);
+<script>
+const slides = {slides_json};
+let currentIdx = 0;
+let isRotated = false;
+const preloadCache = {{}};
+
+const slideImg    = document.getElementById('slideImg');
+const slideWrapper= document.getElementById('slideWrapper');
+const slideSelect = document.getElementById('slideSelect');
+const dotsContainer=document.getElementById('dotsContainer');
+const prevBtn     = document.getElementById('prevBtn');
+const nextBtn     = document.getElementById('nextBtn');
+const rotateBtn   = document.getElementById('rotateBtn');
+const fullscreenBtn=document.getElementById('fullscreenBtn');
+const slideArea   = document.getElementById('slideArea');
+const viewer      = document.querySelector('.viewer-container');
+const skeleton    = document.getElementById('skeleton');
+const toast       = document.getElementById('toast');
+
+// Build select + dots
+slides.forEach((_, idx) => {{
+    const opt = document.createElement('option');
+    opt.value = idx;
+    opt.textContent = `Slide ${{idx + 1}} of ${{slides.length}}`;
+    slideSelect.appendChild(opt);
+    const dot = document.createElement('div');
+    dot.className = `dot ${{idx === 0 ? 'active' : ''}}`;
+    dot.onclick = () => showSlide(idx);
+    dotsContainer.appendChild(dot);
+}});
+
+function preload(idx) {{
+    if (idx < 0 || idx >= slides.length || preloadCache[idx]) return;
+    const img = new Image();
+    img.src = slides[idx];
+    preloadCache[idx] = img;
+}}
+
+function showSlide(idx) {{
+    if (idx < 0 || idx >= slides.length) return;
+    currentIdx = idx;
+    const url = slides[idx];
+
+    // Show skeleton while loading
+    skeleton.style.display = 'block';
+    slideImg.style.opacity = '0';
+
+    if (preloadCache[idx] && preloadCache[idx].complete) {{
+        // Already cached — instant
+        slideImg.src = url;
+        slideImg.style.opacity = '1';
+        skeleton.style.display = 'none';
+    }} else {{
+        slideImg.src = url;
+        slideImg.onload = () => {{
+            slideImg.style.opacity = '1';
+            skeleton.style.display = 'none';
+        }};
+        slideImg.onerror = () => {{ skeleton.style.display = 'none'; }};
     }}
 
-    let touchStartX = 0;
-    let touchStartY = 0;
-    let touchEndX = 0;
-    let touchEndY = 0;
-    let lastTap = 0;
-    
-    viewer.addEventListener('touchstart', (e) => {{
-        touchStartX = e.changedTouches[0].screenX;
-        touchStartY = e.changedTouches[0].screenY;
-    }}, {{passive: true}});
-    
-    viewer.addEventListener('touchend', (e) => {{
-        touchEndX = e.changedTouches[0].screenX;
-        touchEndY = e.changedTouches[0].screenY;
-        
-        const deltaX = touchEndX - touchStartX;
-        const deltaY = touchEndY - touchStartY;
-        
-        if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > 50) {{
-            if (deltaX < 0) {{
-                nextSlide();
-            }} else {{
-                prevSlide();
-            }}
-        }} else if (Math.abs(deltaX) < 10 && Math.abs(deltaY) < 10) {{
-            const currentTime = new Date().getTime();
-            const tapLength = currentTime - lastTap;
-            const isClickOnControls = e.target.closest('.top-bar') || e.target.closest('.dots-container') || e.target.closest('.nav-arrow');
-            
-            if (tapLength < 300 && tapLength > 0) {{
-                // Double tap: cycle fit modes!
-                if (!isClickOnControls) {{
-                    cycleFitMode();
-                }}
-                e.preventDefault();
-            }} else {{
-                // Single tap: toggle fullscreen (after a brief delay to check for double tap)
-                setTimeout(() => {{
-                    const newCurrentTime = new Date().getTime();
-                    if (newCurrentTime - lastTap >= 300) {{
-                        if (!isClickOnControls) {{
-                            toggleFullscreen();
-                        }}
-                    }}
-                }}, 300);
-            }}
-            lastTap = currentTime;
-        }}
-    }}, {{passive: false}});
-    
-    // Also toggle fullscreen on click (desktop) and double click to cycle fit mode
-    slideArea.onclick = (e) => {{
-        if (e.target.closest('.nav-arrow')) return;
-        toggleFullscreen();
-    }};
-    
-    slideArea.ondblclick = (e) => {{
-        if (e.target.closest('.nav-arrow')) return;
-        cycleFitMode();
-    }};
-    
-    showSlide(0);
-    </script>
-    </body>
-    </html>
-    """
-    
+    slideSelect.value = idx;
+    dotsContainer.querySelectorAll('.dot').forEach((d, i) => {{
+        d.className = `dot ${{i === idx ? 'active' : ''}}`;
+    }});
+
+    // Preload neighbours
+    setTimeout(() => {{ preload(idx + 1); preload(idx + 2); }}, 100);
+    setTimeout(() => {{ preload(idx - 1); }}, 200);
+}}
+
+function nextSlide() {{ if (currentIdx < slides.length-1) showSlide(currentIdx+1); }}
+function prevSlide() {{ if (currentIdx > 0) showSlide(currentIdx-1); }}
+
+prevBtn.onclick = prevSlide;
+nextBtn.onclick = nextSlide;
+slideSelect.onchange = e => showSlide(parseInt(e.target.value));
+
+rotateBtn.onclick = () => {{
+    isRotated = !isRotated;
+    slideImg.classList.toggle('rotated', isRotated);
+}};
+
+function toggleFullscreen() {{
+    if (!document.fullscreenElement && !document.webkitFullscreenElement) {{
+        const req = viewer.requestFullscreen || viewer.webkitRequestFullscreen;
+        if (req) req.call(viewer);
+    }} else {{
+        const ex = document.exitFullscreen || document.webkitExitFullscreen;
+        if (ex) ex.call(document);
+    }}
+}}
+fullscreenBtn.onclick = toggleFullscreen;
+
+function onFSChange() {{
+    const isFS = !!(document.fullscreenElement || document.webkitFullscreenElement);
+    document.body.classList.toggle('is-fullscreen', isFS);
+    fullscreenBtn.querySelector('span').textContent = isFS ? '🚪 Exit' : '📺 Fullscreen';
+
+    if (isFS) {{
+        // Force body/html to not constrain height (they have 520px fixed)
+        document.documentElement.style.cssText = 'width:100vw;height:100vh;overflow:hidden;background:black;margin:0;padding:0;';
+        document.body.style.cssText = 'width:100vw;height:100vh;overflow:hidden;background:black;margin:0;padding:0;display:flex;flex-direction:column;';
+        // Force viewer to fill screen
+        viewer.style.cssText = 'width:100vw!important;height:100vh!important;background:black!important;padding:0!important;display:flex!important;flex-direction:column!important;';
+        // Hide controls
+        document.querySelector('.top-bar').style.display = 'none';
+        document.querySelector('.dots-container').style.display = 'none';
+        // Stretch slide area
+        slideArea.style.cssText = 'width:100vw!important;height:100vh!important;flex:1!important;min-height:0!important;background:black!important;border:none!important;border-radius:0!important;';
+        slideWrapper.style.cssText = 'width:100vw!important;height:100vh!important;max-width:100vw!important;max-height:100vh!important;';
+        slideImg.style.cssText = 'width:100vw!important;height:100vh!important;max-width:100vw!important;max-height:100vh!important;object-fit:contain!important;border-radius:0!important;box-shadow:none!important;pointer-events:none;';
+    }} else {{
+        // Restore everything
+        document.documentElement.style.cssText = '';
+        document.body.style.cssText = '';
+        viewer.style.cssText = '';
+        document.querySelector('.top-bar').style.display = '';
+        document.querySelector('.dots-container').style.display = '';
+        slideArea.style.cssText = '';
+        slideWrapper.style.cssText = '';
+        slideImg.style.cssText = '';
+    }}
+}}
+document.addEventListener('fullscreenchange', onFSChange);
+document.addEventListener('webkitfullscreenchange', onFSChange);
+
+window.addEventListener('keydown', e => {{
+    if (e.key==='ArrowRight') nextSlide();
+    if (e.key==='ArrowLeft')  prevSlide();
+}});
+
+// Fit mode cycling
+const fitModes = ['fill','cover','contain'];
+let fitIdx = 0;
+function showToast(text) {{
+    toast.textContent = text;
+    toast.style.opacity = '1'; toast.style.transform = 'translateY(0)';
+    setTimeout(() => {{ toast.style.opacity='0'; toast.style.transform='translateY(10px)'; }}, 1200);
+}}
+function cycleFitMode() {{
+    fitIdx = (fitIdx+1) % fitModes.length;
+    slideImg.style.setProperty('object-fit', fitModes[fitIdx], 'important');
+    showToast('Fit: '+fitModes[fitIdx].toUpperCase());
+}}
+
+// Touch / swipe
+let tx=0, ty=0, lastTap=0;
+viewer.addEventListener('touchstart', e => {{
+    tx = e.changedTouches[0].screenX;
+    ty = e.changedTouches[0].screenY;
+}}, {{passive:true}});
+viewer.addEventListener('touchend', e => {{
+    const dx = e.changedTouches[0].screenX - tx;
+    const dy = e.changedTouches[0].screenY - ty;
+    if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 50) {{
+        dx < 0 ? nextSlide() : prevSlide();
+    }} else if (Math.abs(dx)<10 && Math.abs(dy)<10) {{
+        const now = Date.now(), gap = now - lastTap;
+        const onCtrl = e.target.closest('.top-bar,.dots-container,.nav-arrow');
+        if (gap < 300 && gap > 0) {{ if(!onCtrl) cycleFitMode(); e.preventDefault(); }}
+        else {{ setTimeout(() => {{ if(Date.now()-lastTap>=300 && !onCtrl) toggleFullscreen(); }},300); }}
+        lastTap = now;
+    }}
+}}, {{passive:false}});
+
+slideArea.onclick    = e => {{ if(!e.target.closest('.nav-arrow')) toggleFullscreen(); }};
+slideArea.ondblclick = e => {{ if(!e.target.closest('.nav-arrow')) cycleFitMode(); }};
+
+// Kick off: show slide 1, preload 2 & 3
+showSlide(0);
+setTimeout(() => {{ preload(1); preload(2); }}, 300);
+</script>
+</body>
+</html>"""
+
     import streamlit.components.v1 as components
     components.html(html_code, height=540)
 
