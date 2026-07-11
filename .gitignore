@@ -12,6 +12,9 @@ clone-Nodejs/
 # Only the intermediate PNG cache is ignored (it's always temporary)
 data/slides_cache/
 
+# Local-only dev marker — NEVER commit; its absence = deployment
+.local_dev
+
 # Node artifacts
 node_modules/
 npm-debug.log*
