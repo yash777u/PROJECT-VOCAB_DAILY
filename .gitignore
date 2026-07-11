@@ -8,11 +8,9 @@ clone-Nodejs/
 .DeutschFlash_Fast_Stack/
 .DeutschFlash_Personal_Deploy/
 
-# Generated slide assets (re-created from German.pptx on startup)
-static/slides/
-
-# Local-only dev marker — NEVER commit this; its absence means "deployed"
-.local_dev
+# Generated slide assets — committed so deployment has them without needing LibreOffice
+# Only the intermediate PNG cache is ignored (it's always temporary)
+data/slides_cache/
 
 # Node artifacts
 node_modules/
